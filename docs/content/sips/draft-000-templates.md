@@ -27,8 +27,17 @@ experience (for both consumers and authors) and broader architecture.
 ## Goals
 
 * Convenient, forgiving user experience for consumers
+* Support consumers to incrementally build application after initial creation
 * Foundation for delivery via IDE
 * Minimise what authors need to know
+
+## Terminology
+
+So we don't overuse the word 'user.'
+
+* **Consumer:** Someone attempting to generate or update a Spin application
+  using the template system.
+* **Author:** Someone creating or maintaining a template.
 
 ## Should we have a template system at all?
 
@@ -45,6 +54,9 @@ Reasons why we should:
   write different docs for every language.
 * Having our own system doesn't preclude offering Spin templates via
   language-idiomatic systems too.
+* We can provide features that require knowledge of Spin application
+  structure, such as incrementally adding components or filtering on the
+  current trigger.
 
 Reasons why we shouldn't:
 
@@ -82,17 +94,36 @@ allowing users to run templates without installing them.
 
 ## User experience: starting a template
 
-The `spin new` command create a new Spin application.  (We may want to consider
-also allowing it to create a new component in an existing application.)
+The `spin` command can:
+
+* Create a new, empty Spin application - just the application part of a
+  `spin.toml` file with no components.
+* Create a simple working Spin application - the `spin.toml` file with
+  one component, and the source code for that component.
+* Add a component to an existing Spin application - add the component
+  manifest to `spin.toml`, and create the source code.
+
+These behaviours can be unified under the `spin new` command, hopefully
+without causing too much confusion!
+
+* If there **is** a `spin.toml` file in the current directory, we are **adding**
+  a component to that application.
+* If there **is not** a `spin.toml` file in the current directory, we are
+  **creating** a new application, either empty or with a starter component.
 
 Proposed syntax:
 
 | Command        | Behaviour |
 |----------------|-----------|
-| `spin new`     | Prompt from installed templates, then run chosen template |
-| `spin new http` | Runs the `http` template. If this is available in more than one language, prompts for language or uses default language |
-| `spin new http -lang haskell` | Runs the Haskell `http` template |
-| `spin new -lang haskell` | Prompt from installed Haskell-language templates, then run chosen template (maybe not useful?) |
+| `spin new`     | If `spin.toml` exists: Prompts from installed templates with appropriate trigger type, then runs chosen template. Adds chosen component. |
+|                | If `spin.toml` does not exist: Prompts from installed templates _or_ empty application (from which prompts for trigger type). Creates app, empty or with starter component per user selection |
+| ? `spin new --empty` | If `spin.toml` exists: Error |
+| ?                    | If `spin.toml` does not exist: Prompts for trigger type. Creates app with no components. |
+| `spin new http` | Runs the `http` template. If this is available in more than one language, prompts for language or uses default language. Creates app with appropriate trigger if needed. |
+| ? `spin new http --empty` | If `spin.toml` exists: Error |
+| ?                         | If `spin.toml` does not exist: Creates empty app with trigger type from `http` template |
+| `spin new http -lang haskell` | Runs the Haskell `http` template.  Creates app with appropriate trigger if needed. |
+| `spin new -lang haskell` | Prompt from installed Haskell-language templates with appropriate trigger type, then run chosen template (maybe not useful?) |
 
 ### What if there are no templates?
 
@@ -101,8 +132,12 @@ first time the user runs `spin new`.  The `cargo generate` experience for this
 is to print an error about a config file path; this is not good.
 
 If the user runs `spin new` (with any options) and we do not have any templates
-installed, we should offer to install the default ones from Spin itself.  We should
-also point them at the `spin templates install` command to add more.
+installed, we should offer to either:
+
+* Create an empty application
+* Install the default ones from Spin itself
+
+We should also point them at the `spin templates install` command to add more.
 
 ### Template search strategy
 
@@ -128,6 +163,10 @@ If the user runs `spin http foo`:
 
 (Note: if the user runs the command in silent/no-interaction mode, then instead
 of listing or prompting, we should just fail with an explanatory message.)
+
+> We need the concept of a language-neutral template, for creating applications
+> that use only existing modules (e.g. Bartholomew). Such a template would be
+> considered to match any language.
 
 ### Applications and components
 
