@@ -31,6 +31,11 @@ experience (for both consumers and authors) and broader architecture.
 * Foundation for delivery via IDE
 * Minimise what authors need to know
 
+### Scenarios
+
+* Developing a custom application (writing oen source code)
+* Using existing applications or components (e.g. Bartholomew or a static asset server)
+
 ## Terminology
 
 So we don't overuse the word 'user.'
@@ -70,8 +75,8 @@ in is compelling, but it's always worth checking that assumption.
 
 Templates are currently identified by a repository ID and directory name.
 Because Spin is a multi-language runtime, it would be good to also identify
-templates by language, so that a user could easily see and choose templates
-in their preferred language.
+templates that contain source code by language, so that a user could easily 
+see and choose templates in their preferred language.
 
 The question of the repository ID is what we want "adding" a template to mean.
 Does adding a template:
@@ -92,7 +97,26 @@ Because this does not qualify every template with a unique Git URL, it does
 require some consideration of name clashes.  There may also be value in
 allowing users to run templates without installing them.
 
-## User experience: starting a template
+### Do we need to identify templates?
+
+We could skip the whole local stage and identify the template with its
+URL. This is less convenient and forgiving for consumers, though:
+
+* Need to accurately type the URL each time
+* No browsing experience if you forget the template name (or feel lazy!)
+
+A partial version of this is to allow aliasing of repos so you would do
+something like `spin new --repo fermyon/spin --template rust-http`.
+Templates could be cached client-side to facilitate browsing and offline
+use (the "I need to work on my demo on the plane to the conference"
+situation!).
+
+This is perfectly viable and would certainly provide a clear avenue for
+updating templates via `git pull`, but it would be nice for consumers not
+to have to think about repos _at all_ at the point of use.  So might be
+preferable to keep to an internal implementation detail.
+
+## Consumer experience: running a template
 
 The `spin` command can:
 
@@ -141,7 +165,7 @@ We should also point them at the `spin templates install` command to add more.
 
 ### Template search strategy
 
-If the user runs `spin http foo`:
+If the user runs `spin new foo`:
 
 * If there is NO default language set:
   * If there ARE templates named `foo` installed:
@@ -212,9 +236,26 @@ We'd need to enforce that IDs couldn't look like URLs.
 
 A somewhat unformed idea that users who primarily use one language could set an
 environment variable or config file setting and have the template system default
-to using that.
+to using that.  (This could be set up e.g. by a new `spin config` command or
+something - we can define this if we agree it's worth having.)
 
-## User experience: installing templates
+### Semantically significant fields, or freeform tags?
+
+@lann has suggested there could be a broader system of tags for searching and
+filtering, of which language would be but one. We may also want trigger
+type for checking component-application compatibility, but using an open-ended
+tag structure for something that has significance feels a bit off.
+
+We could offer keyword-style tags for searching, e.g. a Bartholomew or
+WordPress template could have the `cms` or `blog` tag. At this stage, "so
+many templates you lose track of them" would be a great problem to have;
+but encouraging authors to tag templates today would be valuable for
+a future templates registry.
+
+In this case, we could have a `--keyword` switch on the `spin new` and
+`spin templates list` commands to filter to the given keyword.
+
+## Consumer experience: installing templates
 
 The current install experience has two paths, remote and local.  The remote path
 takes a Git repository URL and branch name, and clones the entire branch into
@@ -235,7 +276,8 @@ spin templates install --git <URL> [--branch foo]
 The current convention for Git sources is that the templates should be located
 at `/templates`.  I'm not sure whether directory sources expect a `templates`
 subdirectory or if you specify the full path - I thought the former but it
-seemed to work when I used the latter. But maybe I was wrong.
+seemed to work when I used the latter. But maybe I was wrong.  We should make
+this unambiguous.
 
 The output of `spin templates install` should be a list of installed templates.
 By default this should be in human readable table format, e.g.:
@@ -253,15 +295,22 @@ but there should be a `-o json` option for programmatic consumption.
 
 ### Name clashes on installation
 
-_TO DO_
+If templates are not qualified by repo, then it's possible for two templates to
+have the same name.  In this case we could:
 
-### Updating installed templates
+* Keep them both (requires retaining where they came from, which is good anyway).
+  If the user asks for that template, prompt for "which `foo` did you mean, the
+  one from `bar/baz` or the one from `fermyon/badnames`".  If both show up in the
+  template search strategy, show the disambiguation there (don't wait for the user
+  to choose the ambiguous one).
+* Warn the user and allow them to rename the one they're installing or overwrite
+  the one they've already got.
 
-_TO DO_
+## Consumer experience: managing templates
 
-## User experience: managing templates
+### Seeing what you have
 
-_TO DO: words_
+A consumer can list the installed template using `spin templates list`:
 
 | Command | Behaviour |
 |---------|-----------|
@@ -274,6 +323,13 @@ offer `-o json` to ease parsing in IDEs or other tools.
 
 If there are no templates then it could tell you how to install some from the
 Spin Git repository.
+
+### Updating installed templates
+
+We could add a `spin templates update <TEMPLATE_NAME>` command to refresh a
+templates from source. If templates are kept in cloned git repos, then this
+is just a matter of doing a `git pull`... _except_ this will update all
+templates sourced from that repo, which could be surprising.
 
 ## Template authoring: file format
 
@@ -301,53 +357,27 @@ and gives authors an unobstructed view of the content.
 
 ### Applications and components
 
-We discussed above the possibility of having "bare app," "smol app," and
-"incremental add" - create an app with no components, create an app with
-one component, and add a component to an existing app.
+There are three situations in which a template could be invoked:
+"bare app" (`spin.toml` with no components), "smol app" (`spin.toml` with
+starter component(s) and source code if appropriate), and
+"incremental add" (component(s) into existing `spin.toml`).
 
-If we do this, it requires further tweaking to the template format,
-or possibly two categories of template:
+A basic model for this could be:
 
-* We need to be able to generate a `spin.toml` _only_.  Our triggers
-  are currently simple enough that this hardly merits a template - it needs
-  only a trigger type and parameter placeholders, the set of which
-  is fixed based on the trigger.
-* We need to be able to generate a component (source code and `spin.toml`
-  entry) _only_.
-* We need to be able to restrict template selection in the incremental
-  scenario to only those templates compatible with the application trigger.
-  Adding a Redis component to a HTTP application is, at least for now,
-  an error.
+* In the "bare app" case, copy the `spin.toml` _but remove any `component` entries._
+  Do not copy any other files.
+* In the "smol app" case, copy `spin.toml` and content.
+* In the "incremental add" case, copy _only the `component` entries_ from
+  `spin.toml`, and copy content.
 
-We could of course make these two separate categories of template. But
-then we need an easy way to do the "smol app" without the user having
-to pick and choose.
+It's possible we would be better off with separate assets for the
+various components so that the template author can mix and match
+in response to consumer input. This is likely to emerge during
+implementation but we can certainly discuss up front.
 
-A possible strategy here is:
-
-* Templates are for components (there are no templates for metadata).
-* Each template says what trigger it works with.
-* If you `spin new foo`:
-  * If there's a `spin.toml`, it checks that `foo` works with the
-    current trigger and if so adds a new component based on the template.
-  * If there's no `spin.toml`, it looks at the trigger that `foo` works
-    with and creates a `spin.toml` with that as the application trigger.
-    It gets the trigger parameters from _TO DO: waves hand_.  Then it
-    adds the component as above.
-* If you `spin new`:
-  * If there's a `spin.toml`, it prompts you with a list of installed
-    templates that work with the trigger in that `spin.toml`.
-  * If there's no `spin.toml`, it prompts you with a list of installed
-    templates BUT ALSO offers you "Empty application".  If you choose that,
-    then  it prompts for the trigger, and creates the `spin.toml` using _hand
-    waving intensifies_.
-  * We could reserve the name `empty` so you could go `spin new empty`?
-
-| Command             | `spin.toml` exists            | `spin.toml` doesn't exist         |
-|---------------------|-------------------------------|-----------------------------------|
-| `spin new`          | Prompt for compatible template      | Prompt for template OR empty; if template, use its trigger type; if empty, prompt for trigger type |
-| `spin new foo`      | Add a `foo` component if compatible | Create with starter `foo` component     |
-| ? `spin new empty` ? | Friendly error               | Prompt for trigger type           |
+We might also find this works better with different kinds of template,
+e.g. separate component templates and app templates. I propose we go ahead
+with the single model for now, and review if it's not meeting our needs.
 
 ### Implementation detail: fiddly files
 
