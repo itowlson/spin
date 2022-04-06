@@ -331,6 +331,12 @@ templates from source. If templates are kept in cloned git repos, then this
 is just a matter of doing a `git pull`... _except_ this will update all
 templates sourced from that repo, which could be surprising.
 
+### Uninstalling templates
+
+We could add a `spin templates uninstall <TEMPLATE_NAME>` command. In this
+case we really don't want to delete the entire repo though, which argues
+for detaching the template files instead of keeping the entire clone.
+
 ## Template authoring: file format
 
 The current system assumes a `spin-generate.toml` file at the root of the
@@ -432,3 +438,27 @@ Notes:
   different source languages.  (Yeoman was JS only.)
 * `yo wasm` used custom logic to install tools, such as the Rust Wasm
   target.  That's much less relevant here I think?
+
+## Implementation and internal design thoughts
+
+_This section captures design ideas that would not be user visible._
+
+### Local template store
+
+Unless we are okay with templates being an online experience (or users
+manually managing git clones), we need to store templates somewhere.
+
+The proposed structure is:
+
+* We do NOT retain full clones of Git repos. The potential increased
+  footprint is unlikely to be a concern except to a few people, but it
+  complicates managing updating and removing templates (unless we force
+  repos into the consumer's mental model).
+* We define a base directory under the user's home directory or a
+  suitable XDG directory.  _TODO: define this._
+* The base directory contains an index file which tracks where each
+  template came from.
+  * We could store language, trigger and keywords here too, to simplify
+    search, but that slightly complicates update and stuff.
+* Templates are stored under sanitised forms of their name.  If there
+  is a clash we can disambiguate with a counter.
