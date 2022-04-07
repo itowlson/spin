@@ -179,6 +179,8 @@ If the user runs `spin new foo`:
 * If there IS a default language set, OR the user explicitly specifies a language:
   * If there IS a template named `foo` in that language installed:
     * Run it
+  * If there are MULTIPLE templates named `foo` in that language installed:
+    * Prompt from these
   * If there are templates named `foo` installed but not in the given language:
     * Message that `foo` is not installed for your default language `Haskell`
     * Prompt with the languages for which `foo` is installed
@@ -331,11 +333,30 @@ templates from source. If templates are kept in cloned git repos, then this
 is just a matter of doing a `git pull`... _except_ this will update all
 templates sourced from that repo, which could be surprising.
 
+If the name is ambiguous then we follow the template search strategy to
+determine which one was meant.
+
 ### Uninstalling templates
 
 We could add a `spin templates uninstall <TEMPLATE_NAME>` command. In this
 case we really don't want to delete the entire repo though, which argues
 for detaching the template files instead of keeping the entire clone.
+
+If the name is ambiguous then we follow the template search strategy to
+determine which one was meant.
+
+## Summary of consumer experience
+
+### Commands
+
+* `spin new [<NAME>] [-lang <LANG>] [--empty]`
+* `spin templates install { --git <URL> [--branch <NAME>] | --dir <PATH> }`
+* `spin templates list [<SUBSTR>] [-lang <LANG>]`
+* `spin templates update <NAME> [-lang <LANG>]`
+* `spin templates uninstall <NAME> [-lang <LANG>]`
+
+* To decide: should we allow `-k <KEYWORD>` on things that use the template
+  search strategy (new, list, update, uninstall)
 
 ## Template authoring: file format
 
