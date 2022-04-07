@@ -13,8 +13,10 @@ anyhow = "1"
 bytes = "1"
 # General-purpose crate with common HTTP types.
 http = "0.2"
+matchit = "0.5.0"
 # The Spin SDK.
 spin-sdk = { path = "../../sdk/rust", version = "0.1.0" }
+# tower = { version = "0.4.12", features = ["make", "filter", "util"] }
 # Crate that generates Rust Wasm bindings from a WebAssembly interface.
 wit-bindgen-rust = { git = "https://github.com/bytecodealliance/wit-bindgen", rev = "2f46ce4cc072107153da0cefe15bdc69aa5b84d0" }
 

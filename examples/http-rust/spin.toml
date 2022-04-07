@@ -9,4 +9,4 @@ version = "1.0.0"
 id = "hello"
 source = "target/wasm32-wasi/release/spinhelloworld.wasm"
 [component.trigger]
-route = "/hello"
+route = "/..."
