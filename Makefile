@@ -1,19 +1,23 @@
-LOG_LEVEL ?= spin=trace
-CERT_NAME ?= local
+ifeq ($(shell uname),Darwin)
+    LDFLAGS := -Wl,-dead_strip
+else
+    LDFLAGS := -Wl,--gc-sections -lpthread -ldl -lssl -lcrypto -lm
+endif
 
-.PHONY: build
-build:
-	cargo build --release
+all: target/spinc
+	target/spinc
 
-.PHONY: test
-test:
-	RUST_LOG=$(LOG_LEVEL) cargo test --all --no-fail-fast -- --nocapture
-	cargo clippy --all-targets --all-features -- -D warnings
-	cargo fmt --all -- --check
+target:
+	mkdir -p $@
 
-# simple convenience for developing with TLS
-.PHONY: tls
-tls: ${CERT_NAME}.crt.pem
+target/spinc: target/main.o target/debug/libspin.a
+	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(CERT_NAME).crt.pem:
-	openssl req -newkey rsa:2048 -nodes -keyout $(CERT_NAME).key.pem -x509 -days 365 -out $(CERT_NAME).crt.pem
+target/debug/libspin.a: src/lib.rs src/commands/up.rs Cargo.toml
+	cargo build
+
+target/main.o: czor/main.c | target
+	$(CC) -o $@ -c $<
+
+clean:
+	rm -rf target

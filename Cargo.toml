@@ -1,5 +1,5 @@
 [package]
-name = "spin-cli"
+name = "spin"
 version = "0.1.0"
 edition = "2021"
 authors = [ "Fermyon Engineering <engineering@fermyon.com>" ]
@@ -58,6 +58,11 @@ members = [
     "sdk/rust/macro"
 ]
 
-[[bin]]
+# [[bin]]
+# name = "spin"
+# path = "src/bin/spin.rs"
+
+[lib]
 name = "spin"
-path = "src/bin/spin.rs"
+crate-type = ["staticlib"]
+path = "src/lib.rs"

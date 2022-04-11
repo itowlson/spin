@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use spin_http_engine::{HttpTrigger, TlsConfig};
 use spin_manifest::{Application, ApplicationTrigger, CoreComponent};
 use spin_redis_engine::RedisTrigger;
-use std::path::{Path, PathBuf};
+use std::{path::{Path, PathBuf}, ffi::{CStr}, os::raw::c_char};
 use structopt::{clap::AppSettings, StructOpt};
 use tempfile::TempDir;
 
@@ -86,6 +86,46 @@ pub struct UpCommand {
         long = "log-dir",
         )]
     pub log: Option<PathBuf>,
+}
+
+#[no_mangle]
+pub extern fn upples(
+    address: *const c_char,
+    app: *const c_char,
+    tmp: *const c_char,
+    log: *const c_char,
+) -> i32 {
+    let ad = unsafe { CStr::from_ptr(address) };
+    let ap = unsafe { CStr::from_ptr(app) };
+    let tm = unsafe { CStr::from_ptr(tmp) };
+    let lo = unsafe { CStr::from_ptr(log) };
+    let cmd = UpCommand {
+        address: ad.to_str().unwrap().to_owned(),
+        app: Some(PathBuf::from(ap.to_str().unwrap())),
+        tmp: Some(PathBuf::from(tm.to_str().unwrap())),
+        log: Some(PathBuf::from(lo.to_str().unwrap())),
+        bindle: None,
+        server: None,
+        env: vec![],
+        tls_cert: None,
+        tls_key: None,
+    };
+
+    let r = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            cmd.run().await
+        });
+
+    match r {
+        Ok(()) => 0,
+        Err(e) => {
+            println!("DISASTER: {:?}", e);
+            1
+        },
+    }
 }
 
 impl UpCommand {
