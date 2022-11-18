@@ -4568,6 +4568,7 @@ dependencies = [
  "tracing",
  "url",
  "wasmtime",
+ "wit-bindgen-wasmtime",
 ]
 
 [[package]]

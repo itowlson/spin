@@ -1,0 +1,6 @@
+enum error {
+    success,
+    error,
+}
+
+handle-external-event: func(message: string) -> expected<string, error>

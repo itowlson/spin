@@ -32,7 +32,7 @@ struct TriggerMetadata {
 impl TriggerExecutor for ExternalTrigger {
     const TRIGGER_TYPE: & 'static str = "external";
 
-    type RuntimeData = ();
+    type RuntimeData = spin_external::SpinExternalData;
 
     type TriggerConfig = ExternalTriggerConfig;
 
@@ -60,7 +60,7 @@ impl TriggerExecutor for ExternalTrigger {
         // start gRPC server
         println!("RUNNING ME SOME GRPC");
         let addr = "[::1]:50051".parse().unwrap();
-        let server_impl = MyProcessEvent {};
+        let server_impl = MyProcessEvent { engine: self.engine };
         let grpc_server = Server::builder()
             .add_service(spinext::process_event_server::ProcessEventServer::new(server_impl))
             .serve(addr);
@@ -83,15 +83,36 @@ mod spinext {
     include!("spinext.rs");
 }
 
-struct MyProcessEvent {}
+struct MyProcessEvent {
+    engine: TriggerAppEngine<ExternalTrigger>,
+}
+
+wit_bindgen_wasmtime::import!({paths: ["src/external/spin-external.wit"], async: *});
 
 #[async_trait::async_trait]
 impl spinext::process_event_server::ProcessEvent for MyProcessEvent {
     async fn event(&self, request: Request<spinext::EventInfo>) -> Result<Response<spinext::EventResponse>, tonic::Status> {
         let typeid = &request.get_ref().typeid;
         let body = &request.get_ref().body;
-        let resp_msg = format!("Behold my response to type {typeid} with body {body}");
-        let resp = spinext::EventResponse { something: resp_msg };
-        Ok(Response::new(resp))
+
+        let (instance, mut store) = self.engine.prepare_instance("madness")
+            .await
+            .map_err(|e| tonic::Status::internal(format!("Failed to prepare instance: {}", e.to_string())))?;
+
+        let engine = spin_external::SpinExternal::new(&mut store, &instance, |data| data.as_mut())
+            .map_err(|e| tonic::Status::internal(format!("Failed to instantiate engine: {}", e.to_string())))?;
+        let raw_resp = engine.handle_external_event(&mut store, &body)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("Wasm handler error: {}", e.to_string())))?;
+
+        match raw_resp {
+            Ok(r) => {
+                let resp = spinext::EventResponse { something: r };
+                Ok(Response::new(resp))
+            }
+            Err(e) => {
+                Err(tonic::Status::internal(format!("Wasm module returned err {:?}", e)))
+            }
+        }
     }
 }
