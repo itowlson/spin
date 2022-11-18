@@ -115,6 +115,8 @@ pub enum ApplicationTrigger {
     Http(HttpTriggerConfiguration),
     /// Redis trigger type.
     Redis(RedisTriggerConfiguration),
+    /// External program.
+    External(ExternalTriggerConfiguration),
 }
 
 /// HTTP trigger configuration.
@@ -154,6 +156,27 @@ impl TryFrom<ApplicationTrigger> for RedisTriggerConfiguration {
     fn try_from(trigger: ApplicationTrigger) -> Result<Self, Self::Error> {
         match trigger {
             ApplicationTrigger::Redis(redis) => Ok(redis),
+            _ => Err(Error::InvalidTriggerType),
+        }
+    }
+}
+
+/// External trigger configuration.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct ExternalTriggerConfiguration {
+    /// The program to run.
+    pub program: PathBuf,
+    #[serde(flatten)]
+    /// Config values.
+    pub settings: HashMap<String, String>,
+}
+
+impl TryFrom<ApplicationTrigger> for ExternalTriggerConfiguration {
+    type Error = Error;
+
+    fn try_from(trigger: ApplicationTrigger) -> Result<Self, Self::Error> {
+        match trigger {
+            ApplicationTrigger::External(e) => Ok(e),
             _ => Err(Error::InvalidTriggerType),
         }
     }
@@ -282,6 +305,14 @@ pub struct RedisConfig {
     pub executor: Option<RedisExecutor>,
 }
 
+/// Configuration for the Redis trigger.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ExternalConfig {
+    /// The settings the component requires.
+    #[serde(flatten)]
+    pub settings: IndexMap<String, String>,
+}
+
 /// The executor for the Redis component.
 ///
 /// If an executor is not specified, the inferred default is `RedisExecutor::Spin`.
@@ -306,6 +337,8 @@ pub enum TriggerConfig {
     Http(HttpConfig),
     /// Redis trigger configuration
     Redis(RedisConfig),
+    /// External trigger configuration
+    External(ExternalConfig),
 }
 
 impl Default for TriggerConfig {
@@ -331,6 +364,17 @@ impl TryFrom<TriggerConfig> for RedisConfig {
     fn try_from(trigger: TriggerConfig) -> Result<Self, Self::Error> {
         match trigger {
             TriggerConfig::Redis(redis) => Ok(redis),
+            _ => Err(Error::InvalidTriggerType),
+        }
+    }
+}
+
+impl TryFrom<TriggerConfig> for ExternalConfig {
+    type Error = Error;
+
+    fn try_from(trigger: TriggerConfig) -> Result<Self, Self::Error> {
+        match trigger {
+            TriggerConfig::External(e) => Ok(e),
             _ => Err(Error::InvalidTriggerType),
         }
     }

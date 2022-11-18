@@ -57,6 +57,7 @@ enum SpinApp {
 enum TriggerCommands {
     Http(TriggerExecutorCommand<HttpTrigger>),
     Redis(TriggerExecutorCommand<RedisTrigger>),
+    External(TriggerExecutorCommand<spin_trigger::external::ExternalTrigger>),
 }
 
 impl SpinApp {
@@ -71,6 +72,7 @@ impl SpinApp {
             Self::Build(cmd) => cmd.run().await,
             Self::Trigger(TriggerCommands::Http(cmd)) => cmd.run().await,
             Self::Trigger(TriggerCommands::Redis(cmd)) => cmd.run().await,
+            Self::Trigger(TriggerCommands::External(cmd)) => cmd.run().await,
             Self::Login(cmd) => cmd.run().await,
             Self::Plugin(cmd) => cmd.run().await,
             Self::External(cmd) => execute_external_subcommand(cmd, SpinApp::command()).await,

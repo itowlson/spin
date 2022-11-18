@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package spinext;
+
+service ProcessEvent {
+    rpc Event (EventInfo) returns (EventResponse);
+}
+
+message EventInfo {
+    string typeid = 1;
+    string body = 2;
+}
+
+message EventResponse {
+    string something = 1;
+}

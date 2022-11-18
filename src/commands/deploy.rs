@@ -323,6 +323,7 @@ impl DeployCommand {
         match cfg.info.trigger {
             ApplicationTrigger::Http(_) => {}
             ApplicationTrigger::Redis(_) => bail!("Redis triggers are not supported"),
+            ApplicationTrigger::External(_) => bail!("External triggers are not supported"),
         }
 
         let buildinfo = if !self.no_buildinfo {

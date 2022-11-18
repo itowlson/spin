@@ -12,7 +12,7 @@ use spin_app::{
 };
 use spin_manifest::{
     Application, ApplicationInformation, ApplicationTrigger, CoreComponent, HttpConfig,
-    HttpTriggerConfiguration, RedisConfig, TriggerConfig,
+    HttpTriggerConfiguration, RedisConfig, TriggerConfig, ExternalConfig,
 };
 
 const WASM_CONTENT_TYPE: &str = "application/wasm";
@@ -100,6 +100,12 @@ impl LockedAppBuilder {
                     (ApplicationTrigger::Redis(_), TriggerConfig::Redis(RedisConfig{ channel, executor: _ })) => {
                         trigger_type = "redis";
                         builder.string("channel", channel);
+                    },
+                    (ApplicationTrigger::External(_), TriggerConfig::External(ExternalConfig{ settings })) => {
+                        trigger_type = "external";
+                        for (k, v) in settings {
+                            builder.string(k, v);
+                        }
                     },
                     (app_config, trigger_config) => bail!("Mismatched app and component trigger configs: {app_config:?} vs {trigger_config:?}")
                 }

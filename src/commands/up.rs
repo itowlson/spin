@@ -146,6 +146,7 @@ impl UpCommand {
         let trigger_type = match app.info.trigger {
             ApplicationTrigger::Http(_) => "http",
             ApplicationTrigger::Redis(_) => "redis",
+            ApplicationTrigger::External(_) => "external",
         };
 
         // Build and write app lock file
