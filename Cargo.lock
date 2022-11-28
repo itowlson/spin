@@ -3537,6 +3537,7 @@ dependencies = [
  "bytes",
  "futures",
  "glob",
+ "indexmap",
  "itertools",
  "lazy_static",
  "outbound-http",

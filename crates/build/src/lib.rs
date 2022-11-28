@@ -139,7 +139,19 @@ pub async fn build_prerequisites(manifest_file: &Path) -> Result<()> {
 }
 
 async fn component_prerequisites(id: String, build: RawBuildConfig) -> Result<()> {
-    todo!()
+    println!("Checking {} ...", id);
+
+    let prerequisites = build.prerequisites.unwrap_or_default();
+    if prerequisites.is_empty() {
+        println!("... no prerequisites listed");
+        return Ok(())
+    }
+
+    for (key, prerequisite) in prerequisites {
+        todo!();
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
