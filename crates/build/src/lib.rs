@@ -109,6 +109,39 @@ fn construct_workdir(app_dir: &Path, workdir: Option<impl AsRef<Path>>) -> Resul
     Ok(cwd)
 }
 
+/// Checks the prerequisites declared in the `build` section for each component,
+/// and prints the messages for any that are unsatisfied.
+///
+/// Similar to the build function, this prints its output directly, and returns
+/// an error only if it can't actually execute the checks.
+pub async fn build_prerequisites(manifest_file: &Path) -> Result<()> {
+    let buildable = buildable_components(manifest_file).await?;
+    if buildable.is_empty() {
+        println!("No build command found!");
+        return Ok(());
+    }
+
+    let results = futures::future::join_all(
+        buildable
+            .into_iter()
+            .map(|(id, build)| component_prerequisites(id, build))
+            .collect::<Vec<_>>(),
+    )
+    .await;
+
+    for r in results {
+        if r.is_err() {
+            bail!(r.err().unwrap());
+        }
+    }
+
+    Ok(())
+}
+
+async fn component_prerequisites(id: String, build: RawBuildConfig) -> Result<()> {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
