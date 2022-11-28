@@ -5,30 +5,29 @@
 mod manifest;
 
 use anyhow::{bail, Context, Result};
-use spin_loader::local::parent_dir;
+use spin_loader::local::{
+    parent_dir
+};
 use std::path::{Path, PathBuf};
 use subprocess::{Exec, Redirection};
 use tracing::log;
 
-use crate::manifest::{BuildAppInfoAnyVersion, RawComponentManifest};
+use crate::manifest::{BuildAppInfoAnyVersion, RawBuildConfig};
 
 /// If present, run the build command of each component.
 pub async fn build(manifest_file: &Path) -> Result<()> {
-    let manifest_text = tokio::fs::read_to_string(manifest_file)
-        .await
-        .with_context(|| format!("Cannot read manifest file from {}", manifest_file.display()))?;
-    let BuildAppInfoAnyVersion::V1(app) = toml::from_str(&manifest_text)?;
-    let app_dir = parent_dir(manifest_file)?;
-
-    if app.components.iter().all(|c| c.build.is_none()) {
+    let buildable = buildable_components(manifest_file).await?;
+    if buildable.is_empty() {
         println!("No build command found!");
         return Ok(());
     }
 
+    let app_dir = parent_dir(manifest_file)?;
+
     let results = futures::future::join_all(
-        app.components
+        buildable
             .into_iter()
-            .map(|c| build_component(c, &app_dir))
+            .map(|(id, build)| build_component(id, build, &app_dir))
             .collect::<Vec<_>>(),
     )
     .await;
@@ -44,46 +43,53 @@ pub async fn build(manifest_file: &Path) -> Result<()> {
 }
 
 /// Run the build command of the component.
-async fn build_component(raw: RawComponentManifest, app_dir: &Path) -> Result<()> {
-    match raw.build {
-        Some(b) => {
-            println!(
-                "Executing the build command for component {}: {}",
-                raw.id, b.command
-            );
-            let workdir = construct_workdir(app_dir, b.workdir.as_ref())?;
-            if b.workdir.is_some() {
-                println!("Working directory: {:?}", workdir);
-            }
-
-            let res = Exec::shell(&b.command)
-                .cwd(workdir)
-                .stdout(Redirection::Pipe)
-                .capture()
-                .with_context(|| {
-                    format!(
-                        "Cannot spawn build process '{:?}' for component {}.",
-                        &b.command, raw.id
-                    )
-                })?;
-
-            if !res.stdout_str().is_empty() {
-                log::info!("Standard output for component {}", raw.id);
-                print!("{}", res.stdout_str());
-            }
-
-            if !res.success() {
-                bail!(
-                    "Build command for component {} failed with status {:?}.",
-                    raw.id,
-                    res.exit_status
-                );
-            }
-
-            Ok(())
-        }
-        _ => Ok(()),
+async fn build_component(id: String, build: RawBuildConfig, app_dir: &Path) -> Result<()> {
+    println!(
+        "Executing the build command for component {}: {}",
+        id, build.command
+    );
+    let workdir = construct_workdir(app_dir, build.workdir.as_ref())?;
+    if build.workdir.is_some() {
+        println!("Working directory: {:?}", workdir);
     }
+
+    let res = Exec::shell(&build.command)
+        .cwd(workdir)
+        .stdout(Redirection::Pipe)
+        .capture()
+        .with_context(|| {
+            format!(
+                "Cannot spawn build process '{:?}' for component {}.",
+                &build.command, id
+            )
+        })?;
+
+    if !res.stdout_str().is_empty() {
+        log::info!("Standard output for component {}", id);
+        print!("{}", res.stdout_str());
+    }
+
+    if !res.success() {
+        bail!(
+            "Build command for component {} failed with status {:?}.",
+            id,
+            res.exit_status
+        );
+    }
+
+    Ok(())
+}
+
+async fn buildable_components(manifest_file: &Path) -> Result<Vec<(String, RawBuildConfig)>> {
+    let manifest_text = tokio::fs::read_to_string(manifest_file)
+        .await
+        .with_context(|| format!("Cannot read manifest file from {}", manifest_file.display()))?;
+    let BuildAppInfoAnyVersion::V1(app) = toml::from_str(&manifest_text)?;
+    Ok(app
+        .components
+        .into_iter()
+        .filter_map(|c| c.build.map(|b| (c.id, b)))
+        .collect())
 }
 
 /// Constructs the absolute working directory in which to run the build command.
