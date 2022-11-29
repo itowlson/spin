@@ -5,11 +5,12 @@
 mod manifest;
 
 use anyhow::{bail, Context, Result, anyhow};
-use crossterm::{QueueableCommand, cursor};
+use crossterm::{QueueableCommand, cursor, style::{self, Stylize}};
+use indexmap::IndexMap;
 use spin_loader::local::{
     parent_dir
 };
-use std::{path::{Path, PathBuf}, io::Write};
+use std::{path::{Path, PathBuf}, io::Write, collections::HashSet};
 use subprocess::{Exec, Redirection, PopenError, ExitStatus};
 use tracing::log;
 
@@ -130,50 +131,77 @@ pub async fn build_prerequisites(manifest_file: &Path) -> Result<()> {
     )
     .await;
 
+    let mut messages = IndexMap::<String, bool>::default();
+
     for r in results {
-        if r.is_err() {
-            bail!(r.err().unwrap());
+        match r {
+            Ok(ms) => for m in ms {
+                messages.insert(m, true);
+            },
+            Err(e) => bail!(e),
         }
     }
+
+    println!();
+    if messages.is_empty() {
+        println!("All checks passed!");
+    } else {
+        println!("Actions required:");
+        for m in messages.keys() {
+            println!("→ {m}");
+        }
+    }
+    println!();
 
     Ok(())
 }
 
-async fn component_prerequisites(id: String, build: RawBuildConfig) -> Result<()> {
+async fn component_prerequisites(id: String, build: RawBuildConfig) -> Result<Vec<String>> {
     print!("Checking component {}...", id);
 
     let prerequisites = build.prerequisites.unwrap_or_default();
     if prerequisites.is_empty() {
         println!(" no prerequisites listed");
-        return Ok(())
+        return Ok(vec![])
     } else {
         println!();
     }
 
     let mut stdout = std::io::stdout();
+    let mut messages = vec![];
 
     for (key, prerequisite) in prerequisites {
         let _ = stdout.queue(cursor::SavePosition);
-        stdout.write_all(format!("- {key}...").as_bytes())?;
+        let _ = stdout.queue(style::PrintStyledContent("-".yellow()));
+        stdout.write_all(format!(" {key}...").as_bytes())?;
         let _ = stdout.queue(cursor::RestorePosition);
         let _ = stdout.flush();
         match check_prerequisite(&prerequisite).await {
             Err(e) => {
-                stdout.write_all(format!("X {}... couldn't check!\n  {}\n", key, e.to_string()).as_bytes())?;
+                let _ = stdout.queue(style::PrintStyledContent("X".red()));
+                stdout.write_all(format!(" {}... couldn't check!\n  {}\n", key, e.to_string()).as_bytes())?;
                 // println!(" couldn't check!\n  - {}", e.to_string());
                 break;
             }
-            Ok(CheckResult::Passed) => stdout.write_all(format!("/ {key}... okay\n").as_bytes())?, // println!("okay"),
-            Ok(CheckResult::Failed) => stdout.write_all(format!("X {}... failed\n  {}\n", key, prerequisite.message).as_bytes())?,  // println!("failed\n  - {}", prerequisite.message),
+            Ok(CheckResult::Passed) => {
+                let _ = stdout.queue(style::PrintStyledContent("✔".green()));
+                stdout.write_all(format!(" {key}...\n").as_bytes())?;
+            }
+            Ok(CheckResult::Failed) => {
+                let _ = stdout.queue(style::PrintStyledContent("X".red()));
+                stdout.write_all(format!(" {key}...\n").as_bytes())?;
+                messages.push(prerequisite.message.to_owned());
+            }
             Ok(CheckResult::Stop) => {
-                stdout.write_all(format!("X {}... failed\n  {}\n", key, prerequisite.message).as_bytes())?;
-                // println!("failed\n  - {}", prerequisite.message);
+                let _ = stdout.queue(style::PrintStyledContent("X".red()));
+                stdout.write_all(format!(" {key}...\n").as_bytes())?;
+                messages.push(prerequisite.message.to_owned());
                 break;
             }
         }
     }
 
-    Ok(())
+    Ok(messages)
 }
 
 enum CheckResult {
@@ -184,7 +212,14 @@ enum CheckResult {
 
 async fn check_prerequisite(prerequisite: &manifest::RawBuildPrerequisite) -> Result<CheckResult> {
     match run_silently(&prerequisite.command) {
-        ExecutionResult::Succeeded => Ok(CheckResult::Passed),
+        ExecutionResult::Succeeded(stdout, stderr) => match &prerequisite.must_contain {
+            None => Ok(CheckResult::Passed),
+            Some(text) => if stdout.contains(text) || stderr.contains(text) {
+                Ok(CheckResult::Passed)
+            } else {
+                Ok(CheckResult::Failed)
+            }
+        }
         ExecutionResult::ErrorStatus(_, stdout, stderr) => Ok(CheckResult::Failed),
         _ => Err(anyhow!("Failed to run check")),  // TODO: more info
     }
@@ -203,7 +238,7 @@ fn run_silently(command: &str) -> ExecutionResult {
             Ok(capture) => {
                 match capture.exit_status {
                     ExitStatus::Exited(code) => if capture.success() {
-                        ExecutionResult::Succeeded
+                        ExecutionResult::Succeeded(capture.stdout_str(), capture.stderr_str())
                     } else {
                         ExecutionResult::ErrorStatus(code, capture.stdout_str(), capture.stderr_str())
                     },
@@ -217,7 +252,7 @@ fn run_silently(command: &str) -> ExecutionResult {
 
 enum ExecutionResult {
     NotFound,
-    Succeeded,
+    Succeeded(String, String),
     ErrorStatus(u32, String, String),
     UnknownStatus,
     Cancelled,

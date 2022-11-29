@@ -37,5 +37,6 @@ pub(crate) struct RawBuildConfig {
 pub(crate) struct RawBuildPrerequisite {
     pub command: String,
     // TODO: moar, much moar
+    pub must_contain: Option<String>,
     pub message: String,
 }

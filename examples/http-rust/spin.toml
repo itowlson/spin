@@ -13,3 +13,18 @@ description = "A simple component that returns hello."
 route = "/hello"
 [component.build]
 command = "cargo build --target wasm32-wasi --release"
+[component.build.prerequisites]
+"Rust installed" = { command = "cargo --version", message = "Install from https://rustup.rs" }
+"Rust wasm32-wasi target" = { command = "rustup target list --installed", must_contain = "wasm32-wasi", message = "Run rustup target add wasm32-wasi" }
+
+[[component]]
+id = "hello2"
+source = "target/wasm32-wasi/release/http_rust.wasm"
+description = "A simple component that returns hello."
+[component.trigger]
+route = "/hello2"
+[component.build]
+command = "cargo build --target wasm32-wasi --release"
+[component.build.prerequisites]
+"Rust installed" = { command = "cargo --version", message = "Install from https://rustup.rs" }
+"Rust wasm32-wasi target" = { command = "rustup target list --installed", must_contain = "wasm32-wasi", message = "Run rustup target add wasm32-wasi" }
