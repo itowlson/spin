@@ -4,7 +4,6 @@
 
 #![deny(missing_docs)]
 
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use spin_manifest::{ApplicationTrigger, TriggerConfig};
 use std::{collections::HashMap, path::PathBuf};
@@ -80,26 +79,9 @@ pub struct RawComponentManifest {
 
 /// Build configuration for the component.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub struct RawBuildConfig {
-    /// Build command.
-    pub command: String,
-    /// Working directory in which the build command is executed. It must be
-    /// relative to the directory in which `spin.toml` is located.
-    pub workdir: Option<PathBuf>,
-    /// The prerequisites for building the component.
-    pub prerequisites: Option<IndexMap<String, RawBuildPrerequisite>>
-}
-
-/// A checkable prerequisite for building the component.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
-pub struct RawBuildPrerequisite {
-    /// The command to run the check
-    pub command: String,
-    // TODO: moar, much moar
-    /// The message if the check fails
-    pub message: String,
+    // Contents of this are unused in the loader
 }
 
 /// WebAssembly configuration.

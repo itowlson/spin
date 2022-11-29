@@ -19,6 +19,10 @@ pub struct BuildCommand {
         )]
     pub app: Option<PathBuf>,
 
+    /// Check that build prerequisites are installed but do not build.
+    #[clap(conflicts_with = BUILD_UP_OPT, long = "check")]
+    pub check: bool,
+
     /// Run the application after building.
     #[clap(name = BUILD_UP_OPT, short = 'u', long = "up")]
     pub up: bool,
@@ -33,6 +37,11 @@ impl BuildCommand {
             .app
             .as_deref()
             .unwrap_or_else(|| DEFAULT_MANIFEST_FILE.as_ref());
+
+        if self.check {
+            spin_build::build_prerequisites(manifest_file).await?;
+            return Ok(());
+        }
 
         spin_build::build(manifest_file).await?;
 

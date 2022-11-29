@@ -4,12 +4,13 @@
 
 mod manifest;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Context, Result, anyhow};
+use crossterm::{QueueableCommand, cursor};
 use spin_loader::local::{
     parent_dir
 };
-use std::path::{Path, PathBuf};
-use subprocess::{Exec, Redirection};
+use std::{path::{Path, PathBuf}, io::Write};
+use subprocess::{Exec, Redirection, PopenError, ExitStatus};
 use tracing::log;
 
 use crate::manifest::{BuildAppInfoAnyVersion, RawBuildConfig};
@@ -139,19 +140,88 @@ pub async fn build_prerequisites(manifest_file: &Path) -> Result<()> {
 }
 
 async fn component_prerequisites(id: String, build: RawBuildConfig) -> Result<()> {
-    println!("Checking {} ...", id);
+    print!("Checking component {}...", id);
 
     let prerequisites = build.prerequisites.unwrap_or_default();
     if prerequisites.is_empty() {
-        println!("... no prerequisites listed");
+        println!(" no prerequisites listed");
         return Ok(())
+    } else {
+        println!();
     }
 
+    let mut stdout = std::io::stdout();
+
     for (key, prerequisite) in prerequisites {
-        todo!();
+        let _ = stdout.queue(cursor::SavePosition);
+        stdout.write_all(format!("- {key}...").as_bytes())?;
+        let _ = stdout.queue(cursor::RestorePosition);
+        let _ = stdout.flush();
+        match check_prerequisite(&prerequisite).await {
+            Err(e) => {
+                stdout.write_all(format!("X {}... couldn't check!\n  {}\n", key, e.to_string()).as_bytes())?;
+                // println!(" couldn't check!\n  - {}", e.to_string());
+                break;
+            }
+            Ok(CheckResult::Passed) => stdout.write_all(format!("/ {key}... okay\n").as_bytes())?, // println!("okay"),
+            Ok(CheckResult::Failed) => stdout.write_all(format!("X {}... failed\n  {}\n", key, prerequisite.message).as_bytes())?,  // println!("failed\n  - {}", prerequisite.message),
+            Ok(CheckResult::Stop) => {
+                stdout.write_all(format!("X {}... failed\n  {}\n", key, prerequisite.message).as_bytes())?;
+                // println!("failed\n  - {}", prerequisite.message);
+                break;
+            }
+        }
     }
 
     Ok(())
+}
+
+enum CheckResult {
+    Passed,
+    Failed,  // failed but can still check others
+    Stop,  // failed and this will stop us checking others
+}
+
+async fn check_prerequisite(prerequisite: &manifest::RawBuildPrerequisite) -> Result<CheckResult> {
+    match run_silently(&prerequisite.command) {
+        ExecutionResult::Succeeded => Ok(CheckResult::Passed),
+        ExecutionResult::ErrorStatus(_, stdout, stderr) => Ok(CheckResult::Failed),
+        _ => Err(anyhow!("Failed to run check")),  // TODO: more info
+    }
+}
+
+fn run_silently(command: &str) -> ExecutionResult {
+    match Exec::shell(command)
+        .stdout(Redirection::Pipe)
+        .stderr(Redirection::Pipe)
+        .capture() {
+            Err(PopenError::IoError(e)) => match e.kind() {
+                std::io::ErrorKind::NotFound => ExecutionResult::NotFound,
+                _ => ExecutionResult::OtherError(e.to_string()),
+            },
+            Err(e) => ExecutionResult::OtherError(e.to_string()),
+            Ok(capture) => {
+                match capture.exit_status {
+                    ExitStatus::Exited(code) => if capture.success() {
+                        ExecutionResult::Succeeded
+                    } else {
+                        ExecutionResult::ErrorStatus(code, capture.stdout_str(), capture.stderr_str())
+                    },
+                    ExitStatus::Signaled(_) => ExecutionResult::Cancelled,
+                    ExitStatus::Other(e) => ExecutionResult::OtherError(e.to_string()),
+                    ExitStatus::Undetermined => ExecutionResult::UnknownStatus,
+                }
+            },
+        }
+}
+
+enum ExecutionResult {
+    NotFound,
+    Succeeded,
+    ErrorStatus(u32, String, String),
+    UnknownStatus,
+    Cancelled,
+    OtherError(String),
 }
 
 #[cfg(test)]

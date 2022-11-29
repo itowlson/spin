@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -28,4 +29,13 @@ pub(crate) struct RawComponentManifest {
 pub(crate) struct RawBuildConfig {
     pub command: String,
     pub workdir: Option<PathBuf>,
+    pub prerequisites: Option<IndexMap<String, RawBuildPrerequisite>>
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub(crate) struct RawBuildPrerequisite {
+    pub command: String,
+    // TODO: moar, much moar
+    pub message: String,
 }
