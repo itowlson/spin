@@ -175,7 +175,7 @@ async fn check_prerequisite(
     stdout.write_all(format!(" {key}...").as_bytes())?;
     let _ = stdout.queue(cursor::RestorePosition);
     let _ = stdout.flush();
-    let result = run_prerequisite(prerequisite).await;
+    let result = run_prerequisite(prerequisite);
     match &result {
         Err(e) => {
             let _ = stdout.queue(style::PrintStyledContent("X".red()));
@@ -201,7 +201,7 @@ enum CheckResult {
     Failed,
 }
 
-async fn run_prerequisite(prerequisite: &manifest::RawBuildPrerequisite) -> Result<CheckResult> {
+fn run_prerequisite(prerequisite: &manifest::RawBuildPrerequisite) -> Result<CheckResult> {
     match run_silently(&prerequisite.command) {
         ExecutionResult::Succeeded(stdout, stderr) => match &prerequisite.must_contain {
             None => Ok(CheckResult::Passed),
