@@ -6,11 +6,12 @@ mod manifest;
 
 use anyhow::{bail, Context, Result, anyhow};
 use crossterm::{QueueableCommand, cursor, style::{self, Stylize}};
-use indexmap::IndexMap;
+use itertools::Itertools;
+use manifest::RawBuildPrerequisite;
 use spin_loader::local::{
     parent_dir
 };
-use std::{path::{Path, PathBuf}, io::Write, collections::HashSet};
+use std::{path::{Path, PathBuf}, io::Write};
 use subprocess::{Exec, Redirection, PopenError, ExitStatus};
 use tracing::log;
 
@@ -123,22 +124,24 @@ pub async fn build_prerequisites(manifest_file: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let results = futures::future::join_all(
-        buildable
-            .into_iter()
-            .map(|(id, build)| component_prerequisites(id, build))
-            .collect::<Vec<_>>(),
-    )
-    .await;
+    let prerequisites = buildable
+        .into_iter()
+        .filter_map(|(_, b)| b.prerequisites)
+        .flatten()
+        .unique_by(|(_, p)| p.duplication_key())
+        .collect_vec();
 
-    let mut messages = IndexMap::<String, bool>::default();
+    if prerequisites.is_empty() {
+        println!("No prerequisites listed");
+        return Ok(());
+    }
 
-    for r in results {
-        match r {
-            Ok(ms) => for m in ms {
-                messages.insert(m, true);
-            },
-            Err(e) => bail!(e),
+    let mut messages = vec![];
+
+    for (name, prerequisite) in prerequisites {
+        match check_prerequisite_2(name, &prerequisite).await? {
+            CheckResult::Passed => (),
+            CheckResult::Failed => messages.push(prerequisite.message),
         }
     }
 
@@ -147,7 +150,7 @@ pub async fn build_prerequisites(manifest_file: &Path) -> Result<()> {
         println!("All checks passed!");
     } else {
         println!("Actions required:");
-        for m in messages.keys() {
+        for m in messages {
             println!("→ {m}");
         }
     }
@@ -156,58 +159,84 @@ pub async fn build_prerequisites(manifest_file: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn component_prerequisites(id: String, build: RawBuildConfig) -> Result<Vec<String>> {
-    print!("Checking component {}...", id);
-
-    let prerequisites = build.prerequisites.unwrap_or_default();
-    if prerequisites.is_empty() {
-        println!(" no prerequisites listed");
-        return Ok(vec![])
-    } else {
-        println!();
-    }
-
+async fn check_prerequisite_2(key: String, prerequisite: &RawBuildPrerequisite) -> Result<CheckResult> {
     let mut stdout = std::io::stdout();
-    let mut messages = vec![];
 
-    for (key, prerequisite) in prerequisites {
-        let _ = stdout.queue(cursor::SavePosition);
-        let _ = stdout.queue(style::PrintStyledContent("-".yellow()));
-        stdout.write_all(format!(" {key}...").as_bytes())?;
-        let _ = stdout.queue(cursor::RestorePosition);
-        let _ = stdout.flush();
-        match check_prerequisite(&prerequisite).await {
-            Err(e) => {
-                let _ = stdout.queue(style::PrintStyledContent("X".red()));
-                stdout.write_all(format!(" {}... couldn't check!\n  {}\n", key, e.to_string()).as_bytes())?;
-                // println!(" couldn't check!\n  - {}", e.to_string());
-                break;
-            }
-            Ok(CheckResult::Passed) => {
-                let _ = stdout.queue(style::PrintStyledContent("✔".green()));
-                stdout.write_all(format!(" {key}...\n").as_bytes())?;
-            }
-            Ok(CheckResult::Failed) => {
-                let _ = stdout.queue(style::PrintStyledContent("X".red()));
-                stdout.write_all(format!(" {key}...\n").as_bytes())?;
-                messages.push(prerequisite.message.to_owned());
-            }
-            Ok(CheckResult::Stop) => {
-                let _ = stdout.queue(style::PrintStyledContent("X".red()));
-                stdout.write_all(format!(" {key}...\n").as_bytes())?;
-                messages.push(prerequisite.message.to_owned());
-                break;
-            }
+    let _ = stdout.queue(cursor::SavePosition);
+    let _ = stdout.queue(style::PrintStyledContent("-".yellow()));
+    stdout.write_all(format!(" {key}...").as_bytes())?;
+    let _ = stdout.queue(cursor::RestorePosition);
+    let _ = stdout.flush();
+    let result = check_prerequisite(&prerequisite).await;
+    match &result {
+        Err(e) => {
+            let _ = stdout.queue(style::PrintStyledContent("X".red()));
+            stdout.write_all(format!(" {}... couldn't check!\n  {}\n", key, e.to_string()).as_bytes())?;
+        }
+        Ok(CheckResult::Passed) => {
+            let _ = stdout.queue(style::PrintStyledContent("✔".green()));
+            stdout.write_all(format!(" {key}... passed\n").as_bytes())?;
+        }
+        Ok(CheckResult::Failed) => {
+            let _ = stdout.queue(style::PrintStyledContent("X".red()));
+            stdout.write_all(format!(" {key}... failed\n").as_bytes())?;
         }
     }
 
-    Ok(messages)
+    result
 }
+
+// async fn component_prerequisites(id: String, build: RawBuildConfig) -> Result<Vec<String>> {
+//     print!("Checking component {}...", id);
+
+//     let prerequisites = build.prerequisites.unwrap_or_default();
+//     if prerequisites.is_empty() {
+//         println!(" no prerequisites listed");
+//         return Ok(vec![])
+//     } else {
+//         println!();
+//     }
+
+//     let mut stdout = std::io::stdout();
+//     let mut messages = vec![];
+
+//     for (key, prerequisite) in prerequisites {
+//         let _ = stdout.queue(cursor::SavePosition);
+//         let _ = stdout.queue(style::PrintStyledContent("-".yellow()));
+//         stdout.write_all(format!(" {key}...").as_bytes())?;
+//         let _ = stdout.queue(cursor::RestorePosition);
+//         let _ = stdout.flush();
+//         match check_prerequisite(&prerequisite).await {
+//             Err(e) => {
+//                 let _ = stdout.queue(style::PrintStyledContent("X".red()));
+//                 stdout.write_all(format!(" {}... couldn't check!\n  {}\n", key, e.to_string()).as_bytes())?;
+//                 // println!(" couldn't check!\n  - {}", e.to_string());
+//                 break;
+//             }
+//             Ok(CheckResult::Passed) => {
+//                 let _ = stdout.queue(style::PrintStyledContent("✔".green()));
+//                 stdout.write_all(format!(" {key}...\n").as_bytes())?;
+//             }
+//             Ok(CheckResult::Failed) => {
+//                 let _ = stdout.queue(style::PrintStyledContent("X".red()));
+//                 stdout.write_all(format!(" {key}...\n").as_bytes())?;
+//                 messages.push(prerequisite.message.to_owned());
+//             }
+//             Ok(CheckResult::Stop) => {
+//                 let _ = stdout.queue(style::PrintStyledContent("X".red()));
+//                 stdout.write_all(format!(" {key}...\n").as_bytes())?;
+//                 messages.push(prerequisite.message.to_owned());
+//                 break;
+//             }
+//         }
+//     }
+
+//     Ok(messages)
+// }
 
 enum CheckResult {
     Passed,
-    Failed,  // failed but can still check others
-    Stop,  // failed and this will stop us checking others
+    Failed,
 }
 
 async fn check_prerequisite(prerequisite: &manifest::RawBuildPrerequisite) -> Result<CheckResult> {
@@ -220,7 +249,8 @@ async fn check_prerequisite(prerequisite: &manifest::RawBuildPrerequisite) -> Re
                 Ok(CheckResult::Failed)
             }
         }
-        ExecutionResult::ErrorStatus(_, stdout, stderr) => Ok(CheckResult::Failed),
+        ExecutionResult::ErrorStatus(_, _, _) => Ok(CheckResult::Failed),
+        ExecutionResult::NotFound => Ok(CheckResult::Failed),
         _ => Err(anyhow!("Failed to run check")),  // TODO: more info
     }
 }

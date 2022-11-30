@@ -40,3 +40,9 @@ pub(crate) struct RawBuildPrerequisite {
     pub must_contain: Option<String>,
     pub message: String,
 }
+
+impl RawBuildPrerequisite {
+    pub(crate) fn duplication_key(&self) -> String {
+        format!("{}**{:?}", self.command, self.must_contain)
+    }
+}
