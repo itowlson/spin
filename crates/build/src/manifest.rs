@@ -29,7 +29,7 @@ pub(crate) struct RawComponentManifest {
 pub(crate) struct RawBuildConfig {
     pub command: String,
     pub workdir: Option<PathBuf>,
-    pub prerequisites: Option<IndexMap<String, RawBuildPrerequisite>>
+    pub prerequisites: Option<IndexMap<String, RawBuildPrerequisite>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
