@@ -1,7 +1,47 @@
 {
-    "$schema": "http://json-schema.org/schema",
+    "$schema": "http://json-schema.org/draft-04/schema#",
     "definitions": {
-
+        "http-trigger": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": "The type of trigger",
+                    "const": "http"
+                },
+                "base": {
+                    "type": "string",
+                    "description": "The base path for all HTTP routes in this application",
+                    "pattern": "^/.*"
+                }
+            },
+            "required": ["type", "base"]
+        },
+        "redis-trigger": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": "The type of trigger",
+                    "const": "redis"
+                },
+                "address": {
+                    "type": "string",
+                    "description": "The address of the Redis instance to which to listen",
+                    "pattern": "^/.*"
+                }
+            },
+            "required": ["type", "address"]
+        },
+        "trigger": {
+            "oneOf": [
+                { "$ref": "#/definitions/http-trigger" },
+                { "$ref": "#/definitions/redis-trigger" }
+            ]
+        },
+        "component": {
+            "type": "object"
+        }
     },
     "properties": {
         "spin_version": {
@@ -31,7 +71,7 @@
         "version": {
             "type": "string",
             "description": "The application version.",
-            "pattern": "^\\d+\\d+\\d+([-+][^-+]+)*$"
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
         },
         "component": {
             "type": "array",
