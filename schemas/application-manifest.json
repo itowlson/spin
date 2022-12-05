@@ -1,0 +1,51 @@
+{
+    "$schema": "http://json-schema.org/schema",
+    "definitions": {
+
+    },
+    "properties": {
+        "spin_version": {
+            "type": "string",
+            "description": "The version of the Spin manifest file format. This must be 1.",
+            "const": "1"
+        },
+        "authors": {
+            "type": "array",
+            "description": "The authors of the application.",
+            "items": {
+                "type": "string"
+            }
+        },
+        "description": {
+            "type": "string",
+            "description": "A description of the application."
+        },
+        "name": {
+            "type": "string",
+            "description": "The application name.",
+            "pattern": "^[-_\\p{L}\\p{N}]+$"
+        },
+        "trigger": {
+            "$ref": "#/definitions/trigger"
+        },
+        "version": {
+            "type": "string",
+            "description": "The application version.",
+            "pattern": "^\\d+\\d+\\d+([-+][^-+]+)*$"
+        },
+        "component": {
+            "type": "array",
+            "description": "The components of the application",
+            "items": {
+                "$ref": "#/definitions/component"
+            }
+        }
+    },
+    "required": [
+        "spin_version",
+        "name",
+        "trigger",
+        "version",
+        "component"
+    ]
+}
