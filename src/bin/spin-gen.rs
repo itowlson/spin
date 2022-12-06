@@ -29,7 +29,7 @@ struct AppManifestCommand;
 
 impl AppManifestCommand {
     async fn run(&self) -> Result<(), Error> {
-        let schema = schemars::schema_for!(spin_loader::local::config::RawAppManifestAnyVersion);
+        let schema = schemars::schema_for!(spin_loader::local::config::RawAppManifest);
         println!("{}", serde_json::to_string_pretty(&schema).unwrap());
         Ok(())
     }

@@ -1,82 +1,71 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "RawAppManifestAnyVersion",
-  "description": "Container for any version of the manifest.",
-  "oneOf": [
-    {
-      "description": "A manifest with API version 1.",
-      "type": "object",
-      "required": [
-        "component",
-        "name",
-        "spin_version",
-        "trigger",
-        "version"
-      ],
-      "properties": {
-        "authors": {
-          "description": "Authors of the application.",
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "component": {
-          "description": "Configuration for the application components.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/RawComponentManifest"
-          }
-        },
-        "description": {
-          "description": "Description of the application.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "name": {
-          "description": "Name of the application.",
-          "type": "string"
-        },
-        "namespace": {
-          "description": "Namespace for the application.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "spin_version": {
-          "type": "string",
-          "enum": [
-            "1"
-          ]
-        },
-        "trigger": {
-          "description": "Trigger for the application.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/ApplicationTrigger"
-            }
-          ]
-        },
-        "variables": {
-          "description": "Application-specific configuration schema.",
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/RawVariable"
-          }
-        },
-        "version": {
-          "description": "Version of the application.",
-          "type": "string"
-        }
-      }
-    }
+  "title": "RawAppManifest",
+  "description": "Application configuration local file format. This is the main structure spin.toml deserializes into.",
+  "type": "object",
+  "required": [
+    "component",
+    "name",
+    "trigger",
+    "version"
   ],
+  "properties": {
+    "authors": {
+      "description": "Authors of the application.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "component": {
+      "description": "Configuration for the application components.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RawComponentManifest"
+      }
+    },
+    "description": {
+      "description": "Description of the application.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "name": {
+      "description": "Name of the application.",
+      "type": "string"
+    },
+    "namespace": {
+      "description": "Namespace for the application.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "trigger": {
+      "description": "Trigger for the application.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ApplicationTrigger"
+        }
+      ]
+    },
+    "variables": {
+      "description": "Application-specific configuration schema.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/RawVariable"
+      }
+    },
+    "version": {
+      "description": "Version of the application.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
   "definitions": {
     "ApplicationTrigger": {
       "description": "The trigger type.",
