@@ -1,5 +1,5 @@
 {
-    "$schema": "http://json-schema.org/draft-04/schema#",
+    "$schema": "http://json-schema.org/schema",
     "definitions": {
         "http-trigger": {
             "type": "object",
@@ -15,7 +15,8 @@
                     "pattern": "^/.*"
                 }
             },
-            "required": ["type", "base"]
+            "required": ["type", "base"],
+            "additionalProperties": false
         },
         "redis-trigger": {
             "type": "object",
@@ -31,7 +32,8 @@
                     "pattern": "^/.*"
                 }
             },
-            "required": ["type", "address"]
+            "required": ["type", "address"],
+            "additionalProperties": false
         },
         "trigger": {
             "oneOf": [
@@ -40,7 +42,203 @@
             ]
         },
         "component": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The ID of the component"
+                },
+                "source": {
+                    "$ref": "#/definitions/module-source"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Description of the component"
+                },
+                "files": {
+                    "type": "array",
+                    "description": "Files to be mapped inside the Wasm module at runtime",
+                    "items": {
+                        "oneOf": [
+                            { "type": "string" },
+                            { "$ref": "#/definitions/directory-placement" }
+                        ]
+                    }
+                },
+                "exclude_files": {
+                    "type": "array",
+                    "description": "Files or glob patterns to exclude from being mapped into the Wasm module",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "allowed_http_hosts": {
+                    "type": "array",
+                    "description": "HTTP hosts to which the component is allowed to connect, in `hostname` or `hostname:port` format",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "environment": {
+                    "type": "object",
+                    "propertyNames": {
+                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+                    }
+                },
+                "trigger": {
+                    "$ref": "#/definitions/component-trigger"
+                },
+                "build": {
+                    "$ref": "#/definitions/build"
+                },
+                "config": {
+                    "type": "object",
+                    "description": "Component-specific configuration values",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            },
+            "required": [
+                "id",
+                "source",
+                "trigger"
+            ],
+            "additionalProperties": false
+        },
+        "directory-placement": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "The source directory to mount"
+                },
+                "destination": {
+                    "type": "string",
+                    "description": "Where in the Wasm module to mount the directory"
+                }
+            },
+            "required": [
+                "source",
+                "destination"
+            ],
+            "additionalProperties": false
+        },
+        "module-source": {
+            "description": "Where to load the component Wasm from",
+            "oneOf": [
+                { "type": "string" },
+                { "$ref": "#/definitions/bindle-module-source" },
+                { "$ref": "#/definitions/url-module-source" }
+            ]
+        },
+        "bindle-module-source": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "type": "string",
+                    "description": "The bindle ID (name/version)"
+                },
+                "parcel": {
+                    "type": "string",
+                    "description": "The parcel to use from the bindle"
+                }
+            },
+            "required": [
+                "reference",
+                "parcel"
+            ]
+        },
+        "url-module-source": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL of the module"
+                },
+                "digest": {
+                    "type": "string",
+                    "description": "The digest of the module, used for integrity checking, in the form 'sha256:...'",
+                    "pattern": "^sha256:[0-0a-fA-F]{64}"
+                }
+            },
+            "required": [
+                "url",
+                "digest"
+            ]
+        },
+        "build": {
+            "type": "object",
+            "description": "Build configuration for the component",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The command to build this component"
+                },
+                "workdir": {
+                    "type": "string",
+                    "description": "The directory in which to run the build command"
+                }
+            },
+            "required": ["command"]
+        },
+        "component-trigger": {
+            "description": "Trigger settings for this component",
+            "oneOf": [
+                { "$ref": "#/definitions/http-component-trigger" },
+                { "$ref": "#/definitions/redis-component-trigger" }
+            ]
+        },
+        "http-component-trigger": {
+            "type": "object",
+            "properties": {
+                "route": {
+                    "type": "string",
+                    "description": "The HTTP route the component will be invoked for"
+                },
+                "executor": {
+                    "type": "string",
+                    "description": "The HTTP executor the component requires",
+                    "enum": ["spin", "wagi"]
+                },
+                "entrypoint": {
+                    "type": "string",
+                    "description": "The name of the entrypoint (WAGI only)"
+                },
+                "argv": {
+                    "type": "string",
+                    "description": "A string representation of the argv array (WAGI only)"
+                }
+            },
+            "required": ["route"]
+        },
+        "redis-component-trigger": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "The Redis channel to subscribe to"
+                }
+            },
+            "required": ["channel"]
+        },
+        "variable": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "type": "string",
+                    "description": "The value the variable will take if not overridden at runtime"
+                },
+                "required": {
+                    "type": "boolean",
+                    "description": "If true, there is nm default value and the variable must be set at runtime"
+                },
+                "secret": {
+                    "type": "boolean",
+                    "description": "If true, the variable will be treated as sensitive"
+                }
+            },
+            "additionalProperties": false
         }
     },
     "properties": {
@@ -71,7 +269,14 @@
         "version": {
             "type": "string",
             "description": "The application version.",
-            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+            "format": "semver"
+        },
+        "variables": {
+            "type": "object",
+            "description": "Application configuration variables that can be set at runtime",
+            "additionalProperties": {
+                "$ref": "#/definitions/variable"
+            }
         },
         "component": {
             "type": "array",
@@ -87,5 +292,6 @@
         "trigger",
         "version",
         "component"
-    ]
+    ],
+    "additionalProperties": false
 }
