@@ -4,6 +4,7 @@
 
 #![deny(missing_docs)]
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use spin_manifest::{ApplicationTrigger, TriggerConfig};
 use std::{collections::HashMap, path::PathBuf};
@@ -11,7 +12,7 @@ use std::{collections::HashMap, path::PathBuf};
 use crate::common::RawVariable;
 
 /// Container for any version of the manifest.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(tag = "spin_version")]
 pub enum RawAppManifestAnyVersion {
     /// A manifest with API version 1.
@@ -21,7 +22,7 @@ pub enum RawAppManifestAnyVersion {
 
 /// Application configuration local file format.
 /// This is the main structure spin.toml deserializes into.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct RawAppManifest {
     /// General application information.
@@ -38,7 +39,7 @@ pub struct RawAppManifest {
 }
 
 /// General application information.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct RawAppInformation {
     /// Name of the application.
@@ -56,7 +57,7 @@ pub struct RawAppInformation {
 }
 
 /// Core component configuration.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct RawComponentManifest {
     /// The module source.
@@ -78,7 +79,7 @@ pub struct RawComponentManifest {
 }
 
 /// Build configuration for the component.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct RawBuildConfig {
     /// Build command.
@@ -89,7 +90,7 @@ pub struct RawBuildConfig {
 }
 
 /// WebAssembly configuration.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct RawWasmConfig {
     /// Files to be mapped inside the Wasm module at runtime.
@@ -109,7 +110,7 @@ pub struct RawWasmConfig {
 
 /// An entry in the `files` list mapping a source path to an absolute
 /// mount path in the guest.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct RawDirectoryPlacement {
     /// The source to mount.
@@ -120,7 +121,7 @@ pub struct RawDirectoryPlacement {
 
 /// A specification for a file or set of files to mount in the
 /// Wasm module.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", untagged)]
 pub enum RawFileMount {
     /// Mount a specified directory at a specified location.
@@ -130,7 +131,7 @@ pub enum RawFileMount {
 }
 
 /// Source for the module.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", untagged)]
 pub enum RawModuleSource {
     /// Local path or parcel reference to a module that needs to be linked.
@@ -145,7 +146,7 @@ pub enum RawModuleSource {
 /// TODO
 /// The component and its entrypoint should be pulled from Bindle.
 /// This assumes access to the Bindle server.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct FileComponentBindleSource {
     /// Reference to the bindle (name/version)
@@ -154,7 +155,7 @@ pub struct FileComponentBindleSource {
     pub parcel: String,
 }
 /// A component source from a URL.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct FileComponentUrlSource {
     /// The URL of the Wasm binary.

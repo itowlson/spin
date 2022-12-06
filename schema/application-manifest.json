@@ -1,0 +1,509 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RawAppManifestAnyVersion",
+  "description": "Container for any version of the manifest.",
+  "oneOf": [
+    {
+      "description": "A manifest with API version 1.",
+      "type": "object",
+      "required": [
+        "component",
+        "name",
+        "spin_version",
+        "trigger",
+        "version"
+      ],
+      "properties": {
+        "authors": {
+          "description": "Authors of the application.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "component": {
+          "description": "Configuration for the application components.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RawComponentManifest"
+          }
+        },
+        "description": {
+          "description": "Description of the application.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Name of the application.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace for the application.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "spin_version": {
+          "type": "string",
+          "enum": [
+            "1"
+          ]
+        },
+        "trigger": {
+          "description": "Trigger for the application.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ApplicationTrigger"
+            }
+          ]
+        },
+        "variables": {
+          "description": "Application-specific configuration schema.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/RawVariable"
+          }
+        },
+        "version": {
+          "description": "Version of the application.",
+          "type": "string"
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "ApplicationTrigger": {
+      "description": "The trigger type.",
+      "oneOf": [
+        {
+          "description": "HTTP trigger type.",
+          "type": "object",
+          "required": [
+            "base",
+            "type"
+          ],
+          "properties": {
+            "base": {
+              "description": "Base path for the HTTP application.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "http"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Redis trigger type.",
+          "type": "object",
+          "required": [
+            "address",
+            "type"
+          ],
+          "properties": {
+            "address": {
+              "description": "Address of Redis server.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "redis"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "FileComponentBindleSource": {
+      "description": "A component source from Bindle. TODO The component and its entrypoint should be pulled from Bindle. This assumes access to the Bindle server.",
+      "type": "object",
+      "required": [
+        "parcel",
+        "reference"
+      ],
+      "properties": {
+        "parcel": {
+          "description": "Parcel to use from the bindle.",
+          "type": "string"
+        },
+        "reference": {
+          "description": "Reference to the bindle (name/version)",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FileComponentUrlSource": {
+      "description": "A component source from a URL.",
+      "type": "object",
+      "required": [
+        "digest",
+        "url"
+      ],
+      "properties": {
+        "digest": {
+          "description": "The digest of the Wasm binary, used for integrity checking. This must be a SHA256 digest, in the form `sha256:...`",
+          "type": "string"
+        },
+        "url": {
+          "description": "The URL of the Wasm binary.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "HttpConfig": {
+      "description": "Configuration for the HTTP trigger.",
+      "type": "object",
+      "required": [
+        "route"
+      ],
+      "properties": {
+        "executor": {
+          "description": "The HTTP executor the component requires.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HttpExecutor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "route": {
+          "description": "HTTP route the component will be invoked for.",
+          "type": "string"
+        }
+      }
+    },
+    "HttpExecutor": {
+      "description": "The executor for the HTTP component. The component can either implement the Spin HTTP interface, or the Wagi CGI interface.\n\nIf an executor is not specified, the inferred default is `HttpExecutor::Spin`.",
+      "oneOf": [
+        {
+          "description": "The component implements the Spin HTTP interface.",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "spin"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The component implements the Wagi CGI interface.",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "argv": {
+              "description": "A string representation of the argv array.\n\nThis should be a space-separate list of strings. The value ${SCRIPT_NAME} will be replaced with the Wagi SCRIPT_NAME, and the value ${ARGS} will be replaced with the query parameter name/value pairs presented as args. For example, `param1=val1&param2=val2` will become `param1=val1 param2=val2`, which will then be presented to the program as two arguments in argv.",
+              "default": "${SCRIPT_NAME} ${ARGS}",
+              "type": "string"
+            },
+            "entrypoint": {
+              "description": "The name of the entrypoint.",
+              "default": "_start",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "wagi"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RawBuildConfig": {
+      "description": "Build configuration for the component.",
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "description": "Build command.",
+          "type": "string"
+        },
+        "workdir": {
+          "description": "Working directory in which the build command is executed. It must be relative to the directory in which `spin.toml` is located.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "RawComponentManifest": {
+      "description": "Core component configuration.",
+      "type": "object",
+      "required": [
+        "id",
+        "source",
+        "trigger"
+      ],
+      "properties": {
+        "allowed_http_hosts": {
+          "description": "Optional list of HTTP hosts the component is allowed to connect.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "build": {
+          "description": "Build configuration for the component.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RawBuildConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "config": {
+          "description": "Component-specific configuration values.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "description": "Description of the component.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "environment": {
+          "description": "Environment variables to be mapped inside the Wasm module at runtime.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "exclude_files": {
+          "description": "Optional list of file path or glob relative to the spin.toml that don't mount to wasm. When exclude_files conflict with files config, exclude_files take precedence.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "description": "Files to be mapped inside the Wasm module at runtime.\n\nIn the local configuration file, this is a vector, each element of which is either a file path or glob relative to the spin.toml file, or a mapping of a source path to an absolute mount path in the guest.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/RawFileMount"
+          }
+        },
+        "id": {
+          "description": "ID of the component. Used at runtime to select between multiple components of the same application.",
+          "type": "string"
+        },
+        "source": {
+          "description": "The module source.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RawModuleSource"
+            }
+          ]
+        },
+        "trigger": {
+          "description": "Trigger configuration.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TriggerConfig"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "RawDirectoryPlacement": {
+      "description": "An entry in the `files` list mapping a source path to an absolute mount path in the guest.",
+      "type": "object",
+      "required": [
+        "destination",
+        "source"
+      ],
+      "properties": {
+        "destination": {
+          "description": "Where to mount the directory specified in `source`.",
+          "type": "string"
+        },
+        "source": {
+          "description": "The source to mount.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RawFileMount": {
+      "description": "A specification for a file or set of files to mount in the Wasm module.",
+      "anyOf": [
+        {
+          "description": "Mount a specified directory at a specified location.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RawDirectoryPlacement"
+            }
+          ]
+        },
+        {
+          "description": "Mount a file or set of files at their relative path.",
+          "type": "string"
+        }
+      ]
+    },
+    "RawModuleSource": {
+      "description": "Source for the module.",
+      "anyOf": [
+        {
+          "description": "Local path or parcel reference to a module that needs to be linked.",
+          "type": "string"
+        },
+        {
+          "description": "Reference to a remote bindle",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FileComponentBindleSource"
+            }
+          ]
+        },
+        {
+          "description": "Reference to a Wasm file at a URL",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FileComponentUrlSource"
+            }
+          ]
+        }
+      ]
+    },
+    "RawVariable": {
+      "description": "Variable configuration.",
+      "type": "object",
+      "properties": {
+        "default": {
+          "description": "If set, the default value for this variable; may not be set with `required`.",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required": {
+          "description": "If set, this variable is required; may not be set with `default`.",
+          "default": false,
+          "type": "boolean"
+        },
+        "secret": {
+          "description": "If set, this variable should be treated as sensitive.",
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RedisConfig": {
+      "description": "Configuration for the Redis trigger.",
+      "type": "object",
+      "required": [
+        "channel"
+      ],
+      "properties": {
+        "channel": {
+          "description": "Redis channel to subscribe.",
+          "type": "string"
+        },
+        "executor": {
+          "description": "The Redis executor the component requires.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RedisExecutor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RedisExecutor": {
+      "description": "The executor for the Redis component.\n\nIf an executor is not specified, the inferred default is `RedisExecutor::Spin`.",
+      "oneOf": [
+        {
+          "description": "The component implements the Spin Redis interface.",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "spin"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TriggerConfig": {
+      "description": "Trigger configuration.",
+      "anyOf": [
+        {
+          "description": "HTTP trigger configuration",
+          "allOf": [
+            {
+              "$ref": "#/definitions/HttpConfig"
+            }
+          ]
+        },
+        {
+          "description": "Redis trigger configuration",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RedisConfig"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
