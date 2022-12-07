@@ -46,7 +46,7 @@
       ]
     },
     "spin_version": {
-      "title": "String",
+      "description": "The version of the manifest file format. Must be '1'",
       "type": "string",
       "enum": [
         "1"
@@ -69,7 +69,8 @@
     },
     "version": {
       "description": "Version of the application.",
-      "type": "string"
+      "type": "string",
+      "format": "semver"
     }
   },
   "additionalProperties": false,

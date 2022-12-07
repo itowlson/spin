@@ -26,10 +26,12 @@ impl JsonSchema for RawAppManifestAnyVersion {
     }
 
     fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        let mut s = gen.root_schema_for::<RawAppManifest>(); // schemars::schema_for!(RawAppManifest);
+        let mut s = gen.root_schema_for::<RawAppManifest>();
         let so = s.schema.object.as_mut().unwrap();
 
         let mut sv_schema = schemars::schema_for!(String).schema;
+        sv_schema.metadata().title = None;
+        sv_schema.metadata().description = Some("The version of the manifest file format. Must be '1'".into());
         sv_schema.enum_values = Some(vec![serde_json::Value::String("1".into())]);
         let sv2 = schemars::schema::Schema::Object(sv_schema);
         so.properties.insert("spin_version".into(), sv2);
