@@ -45,6 +45,13 @@
         "null"
       ]
     },
+    "spin_version": {
+      "title": "String",
+      "type": "string",
+      "enum": [
+        "1"
+      ]
+    },
     "trigger": {
       "description": "Trigger for the application.",
       "allOf": [

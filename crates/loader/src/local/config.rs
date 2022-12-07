@@ -12,12 +12,30 @@ use std::{collections::HashMap, path::PathBuf};
 use crate::common::RawVariable;
 
 /// Container for any version of the manifest.
-#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "spin_version")]
 pub enum RawAppManifestAnyVersion {
     /// A manifest with API version 1.
     #[serde(rename = "1")]
     V1(RawAppManifest),
+}
+
+impl JsonSchema for RawAppManifestAnyVersion {
+    fn schema_name() -> String {
+        "ApplicationManifest".into()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        let mut s = gen.root_schema_for::<RawAppManifest>(); // schemars::schema_for!(RawAppManifest);
+        let so = s.schema.object.as_mut().unwrap();
+
+        let mut sv_schema = schemars::schema_for!(String).schema;
+        sv_schema.enum_values = Some(vec![serde_json::Value::String("1".into())]);
+        let sv2 = schemars::schema::Schema::Object(sv_schema);
+        so.properties.insert("spin_version".into(), sv2);
+
+        schemars::schema::Schema::Object(s.schema)
+    }
 }
 
 /// Application configuration local file format.
@@ -55,6 +73,22 @@ pub struct RawAppInformation {
     /// Namespace for the application.
     pub namespace: Option<String>,
 }
+
+// impl JsonSchema for RawAppInformation {
+//     fn schema_name() -> String {
+//         "raw_app_information".into()
+//     }
+
+//     fn json_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+//         let mut s = schemars::schema_for!(Self);  // oh no recursive
+//         let so = s.schema.object.as_mut().unwrap();
+//         match so.properties.get_mut("version") {
+//             Some(schemars::schema::Schema::Object(vs)) => { vs.format = Some("semver".into()); }
+//             _ => (),
+//         };
+//         schemars::schema::Schema::Object(s.schema)
+//     }
+// }
 
 /// Core component configuration.
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
