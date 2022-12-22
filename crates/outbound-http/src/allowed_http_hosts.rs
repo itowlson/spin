@@ -15,6 +15,11 @@ pub enum AllowedHttpHosts {
 }
 
 #[derive(Clone)]
+pub struct RuntimeHostAllowerFactory {
+    pub f: Arc<Box<dyn Send + Sync + Fn(String) -> RuntimeHostAllower>>,
+}
+
+#[derive(Clone)]
 pub struct RuntimeHostAllower {
     pub f: Arc<Box<dyn Send + Sync + Fn(String) -> bool>>,
 }

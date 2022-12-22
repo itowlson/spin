@@ -13,7 +13,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 pub use async_trait::async_trait;
 // use cli::prompt_allow_host;
-use outbound_http::allowed_http_hosts::RuntimeHostAllower;
+use outbound_http::allowed_http_hosts::{RuntimeHostAllowerFactory};
 use serde::de::DeserializeOwned;
 
 use spin_app::{App, AppComponent, AppLoader, AppTrigger, Loader, OwnedApp};
@@ -50,19 +50,19 @@ pub struct TriggerExecutorBuilder<Executor: TriggerExecutor> {
     config: Config,
     hooks: Box<dyn TriggerHooks>,
     disable_default_host_components: bool,
-    rha: Option<RuntimeHostAllower>,
+    rhaf: Option<RuntimeHostAllowerFactory>,
     _phantom: PhantomData<Executor>,
 }
 
 impl<Executor: TriggerExecutor> TriggerExecutorBuilder<Executor> {
     /// Create a new TriggerExecutorBuilder with the given Application.
-    pub fn new(loader: impl Loader + Send + Sync + 'static, rha: Option<RuntimeHostAllower>) -> Self {
+    pub fn new(loader: impl Loader + Send + Sync + 'static, rhaf: Option<RuntimeHostAllowerFactory>) -> Self {
         Self {
             loader: AppLoader::new(loader),
             config: Default::default(),
             hooks: Box::new(()),
             disable_default_host_components: false,
-            rha,
+            rhaf,
             _phantom: PhantomData,
         }
     }
@@ -101,7 +101,7 @@ impl<Executor: TriggerExecutor> TriggerExecutorBuilder<Executor> {
                 builder.add_host_component(outbound_mysql::OutboundMysql::default())?;
                 self.loader.add_dynamic_host_component(
                     &mut builder,
-                    outbound_http::OutboundHttpComponent { rha: self.rha.clone() },
+                    outbound_http::OutboundHttpComponent { rhaf: self.rhaf.clone() },
                 )?;
                 self.loader.add_dynamic_host_component(
                     &mut builder,

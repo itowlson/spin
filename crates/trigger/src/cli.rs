@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::{Arc, RwLock}};
 
 use anyhow::{Context, Result};
 use clap::{Args, IntoApp, Parser};
-use outbound_http::allowed_http_hosts::RuntimeHostAllower;
+use outbound_http::allowed_http_hosts::{RuntimeHostAllower, RuntimeHostAllowerFactory};
 use serde::de::DeserializeOwned;
 use tokio::{
     task::JoinHandle,
@@ -111,9 +111,12 @@ where
             return Ok(());
         }
 
-        let promptomatic = PromptOMatic3000::new();
-        let prompt = move |host| promptomatic.prompt_allow_host(host);
-        let rha = RuntimeHostAllower { f: Arc::new(Box::new(prompt)) };
+        // let promptomatic = PromptOMatic3000::new();
+        // let prompt = move |host| promptomatic.prompt_allow_host(host);
+        // let rha = RuntimeHostAllower { f: Arc::new(Box::new(prompt)) };
+        let promptomaticf = PromptOMatic3000Factory::new();
+        let promptf = move |id: String| promptomaticf.build(id);
+        let rhaf = RuntimeHostAllowerFactory { f: Arc::new(Box::new(promptf)) };
 
         // Required env vars
         let working_dir = std::env::var(SPIN_WORKING_DIR).context(SPIN_WORKING_DIR)?;
@@ -127,7 +130,7 @@ where
         let executor: Executor = {
             let _sloth_warning = warn_if_wasm_build_slothful();
 
-            let mut builder = TriggerExecutorBuilder::new(loader, Some(rha));
+            let mut builder = TriggerExecutorBuilder::new(loader, Some(rhaf));
             self.update_wasmtime_config(builder.wasmtime_config_mut())?;
 
             let logging_hooks = StdioLoggingTriggerHooks::new(self.follow_components(), self.log);
@@ -216,31 +219,53 @@ async fn warn_slow_wasm_build() {
 //     false
 // }
 
-#[derive(Clone)]
-struct PromptOMatic3000 {
-    already_allowed: Arc<RwLock<Vec<String>>>,
+struct PromptOMatic3000Factory {
+    already_allowed: Arc<RwLock<Vec<(String, String)>>>,
 }
 
-impl PromptOMatic3000 {
+impl PromptOMatic3000Factory {
     pub fn new() -> Self {
         Self {
             already_allowed: Arc::new(RwLock::new(vec![])),
         }
     }
 
+    pub fn build(&self, component_id: impl Into<String>) -> RuntimeHostAllower {
+        let promptomatic = PromptOMatic3000::new(self.already_allowed.clone(), component_id.into());
+        let prompt = move |host| promptomatic.prompt_allow_host(host);
+        let rha = RuntimeHostAllower { f: Arc::new(Box::new(prompt)) };
+        rha
+        // PromptOMatic3000::new(component_id.into())
+    }
+}
+
+#[derive(Clone)]
+struct PromptOMatic3000 {
+    component_id: String,
+    already_allowed: Arc<RwLock<Vec<(String, String)>>>,
+}
+
+impl PromptOMatic3000 {
+    pub fn new(allowals_store: Arc<RwLock<Vec<(String, String)>>>, component_id: impl Into<String>) -> Self {
+        Self {
+            component_id: component_id.into(),
+            already_allowed: allowals_store,
+        }
+    }
+
     pub fn prompt_allow_host(&self, host: String) -> bool {
-        if self.already_allowed.read().unwrap().contains(&host) {
+        if self.already_allowed.read().unwrap().contains(&(self.component_id.clone(), host.clone())) {
             return true;
         }
 
-        println!("WOULD YOU LIKE TO ALLOW {host} WOULD YOU RRALLY IVAN");
+        println!("WOULD YOU LIKE TO ALLOW {} to access {host} WOULD YOU RRALLY IVAN", self.component_id);
         let allow = match dialoguer::Select::new().items(&["Nuh-uh, that sounds like crazy talk", "YOLO LET'S DO IT"]).interact() {
             Ok(index) => index == 1,
             Err(_) => false,
         };
 
         if allow {
-            self.already_allowed.write().unwrap().push(host);
+            self.already_allowed.write().unwrap().push((self.component_id.clone(), host));
         }
 
         allow

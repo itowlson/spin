@@ -3,10 +3,10 @@ use anyhow::Result;
 use spin_app::DynamicHostComponent;
 use spin_core::{Data, HostComponent, Linker};
 
-use crate::{allowed_http_hosts::{parse_allowed_http_hosts, RuntimeHostAllower}, OutboundHttp};
+use crate::{allowed_http_hosts::{parse_allowed_http_hosts, RuntimeHostAllowerFactory}, OutboundHttp};
 
 pub struct OutboundHttpComponent {
-    pub rha: Option<RuntimeHostAllower>,
+    pub rhaf: Option<RuntimeHostAllowerFactory>,
 }
 
 pub const ALLOWED_HTTP_HOSTS_METADATA_KEY: &str = "allowed_http_hosts";
@@ -32,8 +32,10 @@ impl DynamicHostComponent for OutboundHttpComponent {
         data: &mut Self::Data,
         component: &spin_app::AppComponent,
     ) -> anyhow::Result<()> {
+        // println!("sorting out allowed hosts stuff");
         let hosts = component.get_metadata(ALLOWED_HTTP_HOSTS_METADATA_KEY)?;
-        data.allowed_hosts = parse_allowed_http_hosts(&hosts, self.rha.clone())?;
+        let component_id = component.id();
+        data.allowed_hosts = parse_allowed_http_hosts(&hosts, self.rhaf.as_ref().map(|r| (r.f)(component_id.to_owned())))?;
         Ok(())
     }
 }
