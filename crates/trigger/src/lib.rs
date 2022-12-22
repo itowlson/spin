@@ -7,11 +7,13 @@ mod stdio;
 use std::{
     collections::HashMap,
     marker::PhantomData,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, sync::Arc,
 };
 
 use anyhow::{anyhow, Context, Result};
 pub use async_trait::async_trait;
+use cli::prompt_allow_host;
+use outbound_http::allowed_http_hosts::RuntimeHostAllower;
 use serde::de::DeserializeOwned;
 
 use spin_app::{App, AppComponent, AppLoader, AppTrigger, Loader, OwnedApp};
@@ -48,6 +50,7 @@ pub struct TriggerExecutorBuilder<Executor: TriggerExecutor> {
     config: Config,
     hooks: Box<dyn TriggerHooks>,
     disable_default_host_components: bool,
+    rha: Option<RuntimeHostAllower>,
     _phantom: PhantomData<Executor>,
 }
 
@@ -59,6 +62,7 @@ impl<Executor: TriggerExecutor> TriggerExecutorBuilder<Executor> {
             config: Default::default(),
             hooks: Box::new(()),
             disable_default_host_components: false,
+            rha: Some(RuntimeHostAllower { f: Arc::new(Box::new(prompt_allow_host)) }),
             _phantom: PhantomData,
         }
     }
@@ -97,7 +101,7 @@ impl<Executor: TriggerExecutor> TriggerExecutorBuilder<Executor> {
                 builder.add_host_component(outbound_mysql::OutboundMysql::default())?;
                 self.loader.add_dynamic_host_component(
                     &mut builder,
-                    outbound_http::OutboundHttpComponent,
+                    outbound_http::OutboundHttpComponent { rha: self.rha.clone() },
                 )?;
                 self.loader.add_dynamic_host_component(
                     &mut builder,

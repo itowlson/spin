@@ -1,20 +1,33 @@
+use std::{sync::Arc, fmt::Debug};
+
 use anyhow::{anyhow, Result};
 use reqwest::Url;
 
 const ALLOW_ALL_HOSTS: &str = "insecure:allow-all";
 
 /// An HTTP host allow-list.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum AllowedHttpHosts {
     /// All HTTP hosts are allowed (the "insecure:allow-all" value was present in the list)
     AllowAll,
     /// Only the specified hosts are allowed.
-    AllowSpecific(Vec<AllowedHttpHost>),
+    AllowSpecific(Vec<AllowedHttpHost>, Option<RuntimeHostAllower>),
+}
+
+#[derive(Clone)]
+pub struct RuntimeHostAllower {
+    pub f: Arc<Box<dyn Send + Sync + Fn(String) -> bool>>,
+}
+
+impl Debug for RuntimeHostAllower {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeHostAllower").finish()
+    }
 }
 
 impl Default for AllowedHttpHosts {
     fn default() -> Self {
-        Self::AllowSpecific(vec![])
+        Self::AllowSpecific(vec![], None)
     }
 }
 
@@ -23,7 +36,22 @@ impl AllowedHttpHosts {
     pub fn allow(&self, url: &url::Url) -> bool {
         match self {
             Self::AllowAll => true,
-            Self::AllowSpecific(hosts) => hosts.iter().any(|h| h.allow(url)),
+            Self::AllowSpecific(hosts, rha) => {
+                if hosts.iter().any(|h| h.allow(url)) {
+                    true
+                } else {
+                    if let Some(host) = url.host_str() {
+                        if let Some(rha2) = rha.as_ref() {
+                            let f = &rha2.f;
+                            f(host.to_owned())
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+            }
         }
     }
 }
@@ -69,13 +97,13 @@ impl AllowedHttpHost {
 
 // Checks a list of allowed HTTP hosts is valid
 pub fn validate_allowed_http_hosts(http_hosts: &Option<Vec<String>>) -> Result<()> {
-    parse_allowed_http_hosts(http_hosts).map(|_| ())
+    parse_allowed_http_hosts(http_hosts, None).map(|_| ())
 }
 
 // Parses a list of allowed HTTP hosts
-pub fn parse_allowed_http_hosts(raw: &Option<Vec<String>>) -> Result<AllowedHttpHosts> {
+pub fn parse_allowed_http_hosts(raw: &Option<Vec<String>>, rha: Option<RuntimeHostAllower>) -> Result<AllowedHttpHosts> {
     match raw {
-        None => Ok(AllowedHttpHosts::AllowSpecific(vec![])),
+        None => Ok(AllowedHttpHosts::AllowSpecific(vec![], rha)),
         Some(list) => {
             if list.iter().any(|domain| domain == ALLOW_ALL_HOSTS) {
                 Ok(AllowedHttpHosts::AllowAll)
@@ -87,7 +115,7 @@ pub fn parse_allowed_http_hosts(raw: &Option<Vec<String>>) -> Result<AllowedHttp
                 let (hosts, errors) = partition_results(parse_results);
 
                 if errors.is_empty() {
-                    Ok(AllowedHttpHosts::AllowSpecific(hosts))
+                    Ok(AllowedHttpHosts::AllowSpecific(hosts, rha))
                 } else {
                     Err(anyhow!(
                         "One or more allowed_http_hosts entries was invalid:\n{}",
@@ -165,6 +193,16 @@ fn partition_results<T, E>(results: Vec<Result<T, E>>) -> (Vec<T>, Vec<E>) {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    impl PartialEq for AllowedHttpHosts {
+        fn eq(&self, other: &Self) -> bool {
+            match (self, other) {
+                (Self::AllowSpecific(v1, _), Self::AllowSpecific(v2, _)) => v1 == v2,
+                (Self::AllowAll, Self::AllowAll) => true,
+                _ => false,
+            }
+        }
+    }
 
     #[test]
     fn test_allowed_hosts_accepts_http_url() {
@@ -282,11 +320,11 @@ mod test {
     fn test_allowed_hosts_respects_allow_all() {
         assert_eq!(
             AllowedHttpHosts::AllowAll,
-            parse_allowed_http_hosts(&to_vec_owned(&["insecure:allow-all"])).unwrap()
+            parse_allowed_http_hosts(&to_vec_owned(&["insecure:allow-all"]), None).unwrap()
         );
         assert_eq!(
             AllowedHttpHosts::AllowAll,
-            parse_allowed_http_hosts(&to_vec_owned(&["spin.fermyon.dev", "insecure:allow-all"]))
+            parse_allowed_http_hosts(&to_vec_owned(&["spin.fermyon.dev", "insecure:allow-all"]), None)
                 .unwrap()
         );
     }
@@ -296,7 +334,7 @@ mod test {
         let allowed = parse_allowed_http_hosts(&to_vec_owned(&[
             "spin.fermyon.dev",
             "http://example.com:8383",
-        ]))
+        ]), None)
         .unwrap();
         assert!(allowed.allow(&Url::parse("http://example.com:8383/foo/bar").unwrap()));
         assert!(allowed.allow(&Url::parse("https://spin.fermyon.dev/").unwrap()));

@@ -205,3 +205,8 @@ async fn warn_slow_wasm_build() {
     println!("Preparing Wasm modules is taking a few seconds...");
     println!();
 }
+
+pub fn prompt_allow_host(host: String) -> bool {
+    println!("{host}: DENIED!");
+    false
+}
