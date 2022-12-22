@@ -4324,6 +4324,7 @@ dependencies = [
  "async-trait",
  "clap 3.2.22",
  "ctrlc",
+ "dialoguer 0.10.2",
  "dirs 4.0.0",
  "futures",
  "outbound-http",

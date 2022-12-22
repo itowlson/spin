@@ -99,7 +99,7 @@ impl HttpTestConfig {
     where
         Executor::TriggerConfig: DeserializeOwned,
     {
-        TriggerExecutorBuilder::new(self.build_loader())
+        TriggerExecutorBuilder::new(self.build_loader(), None)
             .build(
                 TEST_APP_URI.to_string(),
                 TriggerExecutorBuilderConfig::default(),
@@ -138,7 +138,7 @@ impl RedisTestConfig {
     {
         self.redis_channel = channel.into();
 
-        TriggerExecutorBuilder::new(self.build_loader())
+        TriggerExecutorBuilder::new(self.build_loader(), None)
             .build(
                 TEST_APP_URI.to_string(),
                 TriggerExecutorBuilderConfig::default(),

@@ -7,12 +7,12 @@ mod stdio;
 use std::{
     collections::HashMap,
     marker::PhantomData,
-    path::{Path, PathBuf}, sync::Arc,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{anyhow, Context, Result};
 pub use async_trait::async_trait;
-use cli::prompt_allow_host;
+// use cli::prompt_allow_host;
 use outbound_http::allowed_http_hosts::RuntimeHostAllower;
 use serde::de::DeserializeOwned;
 
@@ -56,13 +56,13 @@ pub struct TriggerExecutorBuilder<Executor: TriggerExecutor> {
 
 impl<Executor: TriggerExecutor> TriggerExecutorBuilder<Executor> {
     /// Create a new TriggerExecutorBuilder with the given Application.
-    pub fn new(loader: impl Loader + Send + Sync + 'static) -> Self {
+    pub fn new(loader: impl Loader + Send + Sync + 'static, rha: Option<RuntimeHostAllower>) -> Self {
         Self {
             loader: AppLoader::new(loader),
             config: Default::default(),
             hooks: Box::new(()),
             disable_default_host_components: false,
-            rha: Some(RuntimeHostAllower { f: Arc::new(Box::new(prompt_allow_host)) }),
+            rha,
             _phantom: PhantomData,
         }
     }

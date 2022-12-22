@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::{Arc, RwLock}};
 
 use anyhow::{Context, Result};
 use clap::{Args, IntoApp, Parser};
+use outbound_http::allowed_http_hosts::RuntimeHostAllower;
 use serde::de::DeserializeOwned;
 use tokio::{
     task::JoinHandle,
@@ -110,6 +111,10 @@ where
             return Ok(());
         }
 
+        let promptomatic = PromptOMatic3000::new();
+        let prompt = move |host| promptomatic.prompt_allow_host(host);
+        let rha = RuntimeHostAllower { f: Arc::new(Box::new(prompt)) };
+
         // Required env vars
         let working_dir = std::env::var(SPIN_WORKING_DIR).context(SPIN_WORKING_DIR)?;
         let locked_url = std::env::var(SPIN_LOCKED_URL).context(SPIN_LOCKED_URL)?;
@@ -122,7 +127,7 @@ where
         let executor: Executor = {
             let _sloth_warning = warn_if_wasm_build_slothful();
 
-            let mut builder = TriggerExecutorBuilder::new(loader);
+            let mut builder = TriggerExecutorBuilder::new(loader, Some(rha));
             self.update_wasmtime_config(builder.wasmtime_config_mut())?;
 
             let logging_hooks = StdioLoggingTriggerHooks::new(self.follow_components(), self.log);
@@ -206,7 +211,38 @@ async fn warn_slow_wasm_build() {
     println!();
 }
 
-pub fn prompt_allow_host(host: String) -> bool {
-    println!("{host}: DENIED!");
-    false
+// pub fn prompt_allow_host(host: String) -> bool {
+//     println!("{host}: DENIED!");
+//     false
+// }
+
+#[derive(Clone)]
+struct PromptOMatic3000 {
+    already_allowed: Arc<RwLock<Vec<String>>>,
+}
+
+impl PromptOMatic3000 {
+    pub fn new() -> Self {
+        Self {
+            already_allowed: Arc::new(RwLock::new(vec![])),
+        }
+    }
+
+    pub fn prompt_allow_host(&self, host: String) -> bool {
+        if self.already_allowed.read().unwrap().contains(&host) {
+            return true;
+        }
+
+        println!("WOULD YOU LIKE TO ALLOW {host} WOULD YOU RRALLY IVAN");
+        let allow = match dialoguer::Select::new().items(&["Nuh-uh, that sounds like crazy talk", "YOLO LET'S DO IT"]).interact() {
+            Ok(index) => index == 1,
+            Err(_) => false,
+        };
+
+        if allow {
+            self.already_allowed.write().unwrap().push(host);
+        }
+
+        allow
+    }
 }
