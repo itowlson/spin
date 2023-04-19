@@ -5316,6 +5316,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "spin-trigger-worker"
+version = "1.2.0-pre0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap 3.2.23",
+ "criterion",
+ "futures",
+ "futures-util",
+ "http",
+ "hyper",
+ "indexmap",
+ "num_cpus",
+ "percent-encoding",
+ "rustls-pemfile 0.3.0",
+ "serde",
+ "serde_json",
+ "spin-app",
+ "spin-core",
+ "spin-testing",
+ "spin-trigger",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "wasi-common 7.0.0",
+ "wasmtime",
+ "wasmtime-wasi",
+ "wit-bindgen-wasmtime",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

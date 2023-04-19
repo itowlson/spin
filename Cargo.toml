@@ -118,6 +118,7 @@ members = [
   "crates/testing",
   "crates/trigger",
   "crates/trigger-http",
+  "crates/trigger-worker",
   "sdk/rust",
   "sdk/rust/macro",
   "crates/e2e-testing"
