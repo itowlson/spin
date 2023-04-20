@@ -140,7 +140,7 @@ impl<Executor: TriggerExecutor> TriggerExecutorBuilder<Executor> {
             .try_for_each(|h| h.app_loaded(app.borrowed(), &runtime_config))?;
 
         // Run trigger executor
-        Executor::new(TriggerAppEngine::new(engine, app_name, app, self.hooks).await?).await
+        Executor::new(TriggerAppEngine::new(engine, app_name, app, self.hooks, runtime_config).await?).await
     }
 }
 
@@ -152,6 +152,8 @@ pub struct TriggerAppEngine<Executor: TriggerExecutor> {
     pub app_name: String,
     // An owned wrapper of the App.
     app: OwnedApp,
+    /// ffs
+    pub runtime_config: RuntimeConfig,
     // Trigger hooks
     hooks: Vec<Box<dyn TriggerHooks>>,
     // Trigger configs for this trigger type, with order matching `app.triggers_with_type(Executor::TRIGGER_TYPE)`
@@ -168,6 +170,7 @@ impl<Executor: TriggerExecutor> TriggerAppEngine<Executor> {
         app_name: String,
         app: OwnedApp,
         hooks: Vec<Box<dyn TriggerHooks>>,
+        runtime_config: RuntimeConfig,
     ) -> Result<Self>
     where
         <Executor as TriggerExecutor>::TriggerConfig: DeserializeOwned,
@@ -200,6 +203,7 @@ impl<Executor: TriggerExecutor> TriggerAppEngine<Executor> {
             engine,
             app_name,
             app,
+            runtime_config,
             hooks,
             trigger_configs: trigger_configs.into_values().collect(),
             component_instance_pres,

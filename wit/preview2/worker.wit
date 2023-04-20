@@ -1,0 +1,9 @@
+default world worker {
+  type payload = list<u8>
+
+  variant error {
+      other(string),
+  }
+
+  export execute: func(payload: payload, checkpoint: option<payload>) -> result<_, error>
+}
