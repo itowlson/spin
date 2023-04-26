@@ -25,6 +25,8 @@ default world reactor {
   import redis: pkg.redis
   import key-value: pkg.key-value
   import http: pkg.http
+  import worker: pkg.worker
   export inbound-http: pkg.inbound-http
   export inbound-redis: pkg.inbound-redis
+  export inbound-worker: pkg.inbound-worker
 }

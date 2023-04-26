@@ -7,11 +7,11 @@ use spin_trigger::{
     TriggerAppEngine, TriggerExecutor, cli::NoArgs, EitherInstance,
 };
 
-wasmtime::component::bindgen!({
-    path: "../../wit/preview2/worker.wit",
-    world: "worker",
-    async: true
-});
+// wasmtime::component::bindgen!({
+//     path: "../../wit/preview2/inbound-worker.wit",
+//     world: "inbound-worker",
+//     async: true
+// });
 
 pub(crate) type RuntimeData = ();
 pub(crate) type _Store = spin_core::Store<RuntimeData>;
@@ -57,18 +57,21 @@ impl TriggerExecutor for WorkerTrigger {
     }
 
     async fn run(self, _config: Self::RunConfig) -> Result<()> {
-        tokio::spawn(async move {
+        let ctrlc = tokio::spawn(async move {
             tokio::signal::ctrl_c().await.unwrap();
-            std::process::exit(0);
+            // std::process::exit(0);
         });
 
         let engine = Arc::new(self.engine);
 
-        let loops = self.component_queue_dirs.into_iter().map(|(id, queue_dir)| {
+        let mut loops = self.component_queue_dirs.into_iter().map(|(id, queue_dir)| {
             Self::start_receive_loop(engine.clone(), id, queue_dir)
-        });
+        }).collect::<Vec<_>>();
 
-        let (_, _, rest) = futures::future::select_all(loops).await;
+        let mut tasks = vec![ctrlc];
+        tasks.append(&mut loops);
+
+        let (_, _, rest) = futures::future::select_all(tasks).await;
         drop(rest);
 
         Ok(())
@@ -109,29 +112,42 @@ impl WorkerTrigger {
                     let EitherInstance::Component(instance) = instance else {
                         unreachable!()
                     };
-                    let instance = match Worker::new(&mut store, &instance) {
-                        Ok(i) => i,
-                        Err(e) => {
-                            tracing::error!("Failed to create Wasm instance for {id}: {e}");
-                            _ = r.rollback(); // TODO: HEY YOU THE DEAD LETTER QUEUE
-                            continue;
-                        }
-                    };
+
+                    let func = instance
+                        .exports(&mut store)
+                        .instance("inbound-worker")
+                        .ok_or_else(|| anyhow::anyhow!("no inbound-worker instance found"))
+                        .unwrap()  // ALERT ALERT ALERT
+                        .typed_func::<
+                            (spin_core::inbound_worker::Payload,),
+                            (core::result::Result<(), spin_core::inbound_worker::Error>,)
+                        >("execute")
+                        .unwrap();  // ALERT ALERT ALERT;
+        
+                    // let instance = match spin_core::inbound_worker::InboundWorker::new(&mut store, &instance) {
+                    //     Ok(i) => i,
+                    //     Err(e) => {
+                    //         tracing::error!("Failed to create Wasm instance for {id}: {e}");
+                    //         _ = r.rollback(); // TODO: HEY YOU THE DEAD LETTER QUEUE
+                    //         continue;
+                    //     }
+                    // };
 
                     let payload = r.as_ref();
                     // TODO: spawn this instead of awaiting it
-                    let er = instance.call_execute(&mut store, payload, None).await;
+                    let er = func.call_async(&mut store, (payload,)).await;
 
                     match er {
                         Err(e) => {
                             eprintln!("call failed {e:?}");
                             _ = r.rollback();
                         }
-                        Ok(Err(e)) => {
+                        Ok((Err(e),)) => {
                             eprintln!("exec returned error {e:?}");
                             _ = r.rollback();
                         }
-                        Ok(Ok(())) => { _ = r.commit(); },
+                        // BEHOLD THE UNPARALLELED ERGONOMICS OF THE COMPONENT MODEL
+                        Ok((Ok(()),)) => { _ = r.commit(); },
                     }
                 }
             }

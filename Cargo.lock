@@ -4980,7 +4980,6 @@ dependencies = [
 [[package]]
 name = "spin-componentize"
 version = "0.1.0"
-source = "git+https://github.com/fermyon/spin-componentize#fa4b72faf30173d9315091fce2979fa9a90c2610"
 dependencies = [
  "anyhow",
  "wasm-encoder 0.25.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5296,6 +5295,7 @@ dependencies = [
  "tracing",
  "url",
  "wasmtime",
+ "yaque",
 ]
 
 [[package]]

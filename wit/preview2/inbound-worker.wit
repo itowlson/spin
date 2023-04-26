@@ -1,0 +1,9 @@
+default interface inbound-worker {
+  type payload = list<u8>
+
+  variant error {
+      ohno,
+  }
+
+  execute: func(payload: payload) -> result<_, error>
+}

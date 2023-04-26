@@ -1,9 +1,12 @@
-default world worker {
+default interface worker {
   type payload = list<u8>
 
-  variant error {
-      other(string),
+  variant exec-error {
+//    nonexistent-component,
+//    io(string),
+//    other(string),
+    ohno,
   }
 
-  export execute: func(payload: payload, checkpoint: option<payload>) -> result<_, error>
+  exec: func(id: string, payload: payload) -> result<_, exec-error>
 }

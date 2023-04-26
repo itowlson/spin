@@ -6,7 +6,7 @@ mod stdio;
 
 use std::{collections::HashMap, marker::PhantomData, path::PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context, Result, bail};
 pub use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 
@@ -113,6 +113,7 @@ impl<Executor: TriggerExecutor> TriggerExecutorBuilder<Executor> {
                 builder.add_host_component(outbound_redis::OutboundRedisComponent)?;
                 builder.add_host_component(outbound_pg::OutboundPg::default())?;
                 builder.add_host_component(outbound_mysql::OutboundMysql::default())?;
+                builder.add_host_component(WorkerComponent::new(&runtime_config.state_dir()))?;
                 self.loader.add_dynamic_host_component(
                     &mut builder,
                     runtime_config::key_value::build_key_value_component(&runtime_config)?,
@@ -141,6 +142,48 @@ impl<Executor: TriggerExecutor> TriggerExecutorBuilder<Executor> {
 
         // Run trigger executor
         Executor::new(TriggerAppEngine::new(engine, app_name, app, self.hooks, runtime_config).await?).await
+    }
+}
+
+#[derive(Clone, Debug)]
+struct WorkerComponent {
+    state_dir: Option<PathBuf>,
+}
+
+impl WorkerComponent {
+    fn new(state_dir: &Option<PathBuf>) -> Self {
+        Self {
+            state_dir: state_dir.clone(),
+        }
+    }
+}
+
+impl spin_core::HostComponent for WorkerComponent {
+    type Data = Self;
+
+    fn add_to_linker<T: Send>(
+        linker: &mut spin_core::Linker<T>,
+        get: impl Fn(&mut spin_core::Data<T>) -> &mut Self::Data + Send + Sync + Copy + 'static,
+    ) -> Result<()> {
+        spin_core::worker::add_to_linker(linker, get)
+    }
+
+    fn build_data(&self) -> Self::Data {
+        self.clone()
+    }
+}
+
+#[async_trait]
+impl spin_core::worker::Host for WorkerComponent {
+    async fn exec(&mut self, id: String, payload: spin_core::worker::Payload,) -> wasmtime::Result<std::result::Result<(), spin_core::worker::ExecError>> {
+        println!("GOT ME SOME WORK WOO");
+        let queue_dir = match &self.state_dir {
+            Some(sd) => sd.join(&id),
+            None => bail!("Can't send work without a state dir"),
+        };
+        let mut sender = yaque::Sender::open(&queue_dir).unwrap();
+        sender.send(payload).await.unwrap();
+        Ok(Ok(()))
     }
 }
 

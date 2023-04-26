@@ -1,7 +1,8 @@
 type payload = list<u8>
 
 variant error {
-    other(string),
+    // other(string),
+    ohno,
 }
 
-execute: func(payload: payload, checkpoint: option<payload>) -> result<unit, error>
+execute: func(payload: payload) -> result<unit, error>
