@@ -92,6 +92,15 @@ macro_rules! error {
 }
 
 #[macro_export]
+macro_rules! info {
+    ($highlight:expr, $($arg:tt)*) => {{
+        $crate::ceprint!($crate::colors::bold_blue(), $highlight);
+        eprint!(" ");
+        eprintln!($($arg)*);
+    }};
+}
+
+#[macro_export]
 macro_rules! cprint {
     ($color:expr, $($arg:tt)*) => {
         use std::io::Write;
@@ -120,6 +129,10 @@ pub mod colors {
 
     pub fn bold_green() -> ColorSpec {
         new(Color::Green, true)
+    }
+
+    pub fn bold_blue() -> ColorSpec {
+        new(Color::Blue, true)
     }
 
     fn new(color: Color, bold: bool) -> ColorSpec {

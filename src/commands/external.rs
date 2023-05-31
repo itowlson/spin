@@ -74,12 +74,17 @@ pub async fn execute_external_subcommand(
     // plugin is finishing too quickly, and I bet even more realistic plugins
     // will do the same.)
     if let Ok(badger_ui) = badger.await {
-        // TODO: colours
         match badger_ui {
-            spin_plugins::badger::BadgerUI::BadgerEligible(to) =>
-                eprintln!("Upgrade available to {to}, go for it"),
-            spin_plugins::badger::BadgerUI::BadgerQuestionable(to) =>
-                eprintln!("Upgrade available to {to}, but it will break all your shit"),
+            spin_plugins::badger::BadgerUI::BadgerEligible(to) => {
+                eprintln!();
+                terminal::info!("This plugin can be upgraded.", "Version {to} is available and compatible.");
+                eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name} -v {to}.`");
+            }
+            spin_plugins::badger::BadgerUI::BadgerQuestionable(to) => {
+                eprintln!();
+                terminal::info!("This plugin can be upgraded.", "Version {to} is available, but may not be compatible.");
+                eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name} -v {to}`.");
+            }
             _ => (),
         }
     }
