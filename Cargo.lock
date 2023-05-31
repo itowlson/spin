@@ -5402,6 +5402,7 @@ version = "1.3.0-pre0"
 dependencies = [
  "anyhow",
  "bytes",
+ "chrono",
  "dirs 4.0.0",
  "flate2",
  "reqwest",

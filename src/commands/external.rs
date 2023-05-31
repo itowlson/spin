@@ -39,7 +39,7 @@ pub async fn execute_external_subcommand(
 ) -> anyhow::Result<()> {
     let (plugin_name, args, override_compatibility_check) = parse_subcommand(cmd)?;
     let plugin_store = PluginStore::try_default()?;
-    match plugin_store.read_plugin_manifest(&plugin_name) {
+    let plugin_version = match plugin_store.read_plugin_manifest(&plugin_name) {
         Ok(manifest) => {
             if let Err(e) =
                 warn_unsupported_version(&manifest, SPIN_VERSION, override_compatibility_check)
@@ -47,6 +47,7 @@ pub async fn execute_external_subcommand(
                 eprintln!("{e}");
                 process::exit(1);
             }
+            manifest.version().to_owned()
         }
         Err(Error::NotFound(e)) => {
             tracing::debug!("Tried to resolve {plugin_name} to plugin, got {e}");
@@ -55,15 +56,34 @@ pub async fn execute_external_subcommand(
             process::exit(2);
         }
         Err(e) => return Err(e.into()),
-    }
+    };
 
     let mut command = Command::new(plugin_store.installed_binary_path(&plugin_name));
     command.args(args);
     command.envs(get_env_vars_map()?);
+
+    let badger = tokio::spawn(spin_plugins::badger::badger(plugin_name.to_owned(), plugin_version));
+
     log::info!("Executing command {:?}", command);
     // Allow user to interact with stdio/stdout of child process
     let status = command.status().await?;
     log::info!("Exiting process with {}", status);
+
+    // TODO: this should be timed out aggressively after the plugin has exited.
+    // (However checking `.is_finished()` doesn't seem to work - I think my test
+    // plugin is finishing too quickly, and I bet even more realistic plugins
+    // will do the same.)
+    if let Ok(badger_ui) = badger.await {
+        // TODO: colours
+        match badger_ui {
+            spin_plugins::badger::BadgerUI::BadgerEligible(to) =>
+                eprintln!("Upgrade available to {to}, go for it"),
+            spin_plugins::badger::BadgerUI::BadgerQuestionable(to) =>
+                eprintln!("Upgrade available to {to}, but it will break all your shit"),
+            _ => (),
+        }
+    }
+
     if !status.success() {
         match status.code() {
             Some(code) => process::exit(code),
