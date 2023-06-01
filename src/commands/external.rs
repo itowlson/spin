@@ -94,13 +94,16 @@ async fn report_badger_result(plugin_name: &str, badger_task: tokio::task::JoinH
             match badger_ui {
                 Ok(Ok(spin_plugins::badger::BadgerUI::BadgerEligible(to))) => {
                     eprintln!();
+                    // TODO: if we offer "latest compatible" then this will need to be sensitive to if it
+                    // is the 'current' plugin version, as `-v` does not work in that case (at time of writing).
                     terminal::info!("This plugin can be upgraded.", "Version {to} is available and compatible.");
-                    eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name} -v {to}.`");
+                    eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name}`.");
                 }
                 Ok(Ok(spin_plugins::badger::BadgerUI::BadgerQuestionable(to))) => {
                     eprintln!();
-                    terminal::info!("This plugin can be upgraded.", "Version {to} is available, but may not be compatible.");
-                    eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name} -v {to}`.");
+                    terminal::info!("This plugin can be upgraded.", "Version {to} is available,");
+                    eprintln!("but may not be backward compatible with your current plugin.");
+                    eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name}`.");
                 }
                 Ok(Ok(_)) => (),
                 Ok(Err(e)) => {
