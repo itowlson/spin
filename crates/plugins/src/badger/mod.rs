@@ -1,19 +1,22 @@
 use std::{path::PathBuf};
 
+use is_terminal::IsTerminal;
 use serde::{Serialize, Deserialize};
 
 use crate::manifest::PluginManifest;
 
-pub async fn badger(name: String, current_version: String) -> BadgerUI {
-    let current_version = match semver::Version::parse(&current_version) {
-        Ok(v) => v,
-        Err(_) => return BadgerUI::None,
-    };
+pub async fn badger(name: String, current_version: String) -> anyhow::Result<BadgerUI> {
+    // There's no point doing the checks if nobody's around to see the results
+    if !std::io::stderr().is_terminal() {
+        return Ok(BadgerUI::None);
+    }
+
+    let current_version = semver::Version::parse(&current_version)?;
 
     let record_manager = BadgerRecordManager::default();
     let last_badger = record_manager.last_badger(&name).await;
 
-    let ui = eval_badger(&name, &current_version, last_badger).await;
+    let ui = eval_badger(&name, &current_version, last_badger).await?;
 
     match &ui {
         BadgerUI::BadgerEligible(to) | BadgerUI::BadgerQuestionable(to) =>
@@ -21,10 +24,10 @@ pub async fn badger(name: String, current_version: String) -> BadgerUI {
         _ => (),
     }
 
-    ui
+    Ok(ui)
 }
 
-async fn eval_badger(name: &str, current_version: &semver::Version, last_badger: Option<BadgerRecord>) -> BadgerUI {
+async fn eval_badger(name: &str, current_version: &semver::Version, last_badger: Option<BadgerRecord>) -> anyhow::Result<BadgerUI> {
     let badgeriness = match last_badger {
         Some(b) if &b.badgered_from == current_version => BadgerEval::FromCurrent { to: b.badgered_to, when: b.when },
         _ => BadgerEval::Fresh,
@@ -36,30 +39,29 @@ async fn eval_badger(name: &str, current_version: &semver::Version, last_badger:
     };
 
     if !should_check {
-        return BadgerUI::None;
+        return Ok(BadgerUI::None);
     }
 
-    let latest_version = match get_latest_version(name).await {
-        Ok(v) => v,
-        Err(_) => return BadgerUI::None,  // TODO: logging
-    };
+    let latest_version = get_latest_version(name).await?;
 
     if &latest_version == current_version {
-        return BadgerUI::None;
+        return Ok(BadgerUI::None);
     }
 
     // TO CONSIDER: skipping this check and badgering for the same upgrade in case they missed it
     if let BadgerEval::FromCurrent { to, .. } = badgeriness {
         if latest_version == to {
-            return BadgerUI::None;
+            return Ok(BadgerUI::None);
         }
     }
 
-    match eligible_upgrade(&current_version, &latest_version) {
+    let result = match eligible_upgrade(&current_version, &latest_version) {
         Eligibility::Eligible => BadgerUI::BadgerEligible(latest_version),
         Eligibility::Questionable => BadgerUI::BadgerQuestionable(latest_version),
         Eligibility::Ineligible => BadgerUI::None,
-    }
+    };
+
+    Ok(result)
 
     // What was the last badgering incident for this plugin?
     // If the incident involved badgering FROM the CURRENT INSTALLED version:
@@ -106,7 +108,7 @@ async fn get_latest_version(name: &str) -> anyhow::Result<semver::Version> {
     let url = format!("https://raw.githubusercontent.com/fermyon/spin-plugins/main/{}/{name}/{name}.json", crate::lookup::PLUGINS_REPO_MANIFESTS_DIRECTORY);
     let resp = reqwest::get(url).await?;
     if !resp.status().is_success() {
-        anyhow::bail!("Error response downloading manifest from GitHub");
+        anyhow::bail!("Error response downloading manifest from GitHub: status {}", resp.status());
     }
     let body: PluginManifest = resp.json().await?;
     let version = semver::Version::parse(body.version())?;

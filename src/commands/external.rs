@@ -6,6 +6,9 @@ use std::{collections::HashMap, env, process};
 use tokio::process::Command;
 use tracing::log;
 
+// How long to wait for the update badger if the plugin finishes first.
+const BADGER_GRACE_PERIOD_MILLIS: u64 = 250;
+
 fn override_flag() -> String {
     format!("--{}", PLUGIN_OVERRIDE_COMPATIBILITY_CHECK_FLAG)
 }
@@ -45,6 +48,7 @@ pub async fn execute_external_subcommand(
                 warn_unsupported_version(&manifest, SPIN_VERSION, override_compatibility_check)
             {
                 eprintln!("{e}");
+                // TODO: consider running the update checked?
                 process::exit(1);
             }
             manifest.version().to_owned()
@@ -62,32 +66,14 @@ pub async fn execute_external_subcommand(
     command.args(args);
     command.envs(get_env_vars_map()?);
 
-    let badger = tokio::spawn(spin_plugins::badger::badger(plugin_name.to_owned(), plugin_version));
+    let badger_task = tokio::spawn(spin_plugins::badger::badger(plugin_name.to_owned(), plugin_version));
 
     log::info!("Executing command {:?}", command);
     // Allow user to interact with stdio/stdout of child process
     let status = command.status().await?;
     log::info!("Exiting process with {}", status);
 
-    // TODO: this should be timed out aggressively after the plugin has exited.
-    // (However checking `.is_finished()` doesn't seem to work - I think my test
-    // plugin is finishing too quickly, and I bet even more realistic plugins
-    // will do the same.)
-    if let Ok(badger_ui) = badger.await {
-        match badger_ui {
-            spin_plugins::badger::BadgerUI::BadgerEligible(to) => {
-                eprintln!();
-                terminal::info!("This plugin can be upgraded.", "Version {to} is available and compatible.");
-                eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name} -v {to}.`");
-            }
-            spin_plugins::badger::BadgerUI::BadgerQuestionable(to) => {
-                eprintln!();
-                terminal::info!("This plugin can be upgraded.", "Version {to} is available, but may not be compatible.");
-                eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name} -v {to}`.");
-            }
-            _ => (),
-        }
-    }
+    report_badger_result(&plugin_name, badger_task).await;
 
     if !status.success() {
         match status.code() {
@@ -96,6 +82,36 @@ pub async fn execute_external_subcommand(
         }
     }
     Ok(())
+}
+
+async fn report_badger_result(plugin_name: &str, badger_task: tokio::task::JoinHandle<Result<spin_plugins::badger::BadgerUI, anyhow::Error>>) {
+    let badger_grace_period = tokio::time::sleep(tokio::time::Duration::from_millis(BADGER_GRACE_PERIOD_MILLIS));
+    tokio::select! {
+        _ = badger_grace_period => {
+            tracing::info!("Cancelled update badger because plugin had already completed");
+        },
+        badger_ui = badger_task => {
+            match badger_ui {
+                Ok(Ok(spin_plugins::badger::BadgerUI::BadgerEligible(to))) => {
+                    eprintln!();
+                    terminal::info!("This plugin can be upgraded.", "Version {to} is available and compatible.");
+                    eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name} -v {to}.`");
+                }
+                Ok(Ok(spin_plugins::badger::BadgerUI::BadgerQuestionable(to))) => {
+                    eprintln!();
+                    terminal::info!("This plugin can be upgraded.", "Version {to} is available, but may not be compatible.");
+                    eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name} -v {to}`.");
+                }
+                Ok(Ok(_)) => (),
+                Ok(Err(e)) => {
+                    tracing::info!("Error running update badger: {e:#}");
+                }
+                Err(e) => {
+                    tracing::info!("Join error on update badger thread: {e:#}");
+                }
+            }
+        }
+    }
 }
 
 fn print_similar_commands(app: clap::App, plugin_name: &str) {

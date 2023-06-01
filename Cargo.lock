@@ -5405,6 +5405,7 @@ dependencies = [
  "chrono",
  "dirs 4.0.0",
  "flate2",
+ "is-terminal",
  "reqwest",
  "semver 1.0.16",
  "serde",
