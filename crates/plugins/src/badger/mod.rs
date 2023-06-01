@@ -5,7 +5,9 @@ use serde::{Serialize, Deserialize};
 
 use crate::manifest::PluginManifest;
 
-pub async fn badger(name: String, current_version: String) -> anyhow::Result<BadgerUI> {
+const BADGER_TIMEOUT_DAYS: i64 = 14;
+
+pub async fn badger(name: String, current_version: String, spin_version: &'static str) -> anyhow::Result<BadgerUI> {
     // There's no point doing the checks if nobody's around to see the results
     if !std::io::stderr().is_terminal() {
         return Ok(BadgerUI::None);
@@ -16,7 +18,7 @@ pub async fn badger(name: String, current_version: String) -> anyhow::Result<Bad
     let record_manager = BadgerRecordManager::default();
     let last_badger = record_manager.last_badger(&name).await;
 
-    let ui = eval_badger(&name, &current_version, last_badger).await?;
+    let ui = eval_badger(&name, &current_version, last_badger, spin_version).await?;
 
     match &ui {
         BadgerUI::BadgerEligible(to) | BadgerUI::BadgerQuestionable(to) =>
@@ -27,15 +29,15 @@ pub async fn badger(name: String, current_version: String) -> anyhow::Result<Bad
     Ok(ui)
 }
 
-async fn eval_badger(name: &str, current_version: &semver::Version, last_badger: Option<BadgerRecord>) -> anyhow::Result<BadgerUI> {
-    let badgeriness = match last_badger {
-        Some(b) if &b.badgered_from == current_version => BadgerEval::FromCurrent { to: b.badgered_to, when: b.when },
-        _ => BadgerEval::Fresh,
+async fn eval_badger(name: &str, current_version: &semver::Version, last_badger: Option<BadgerRecord>, spin_version: &str) -> anyhow::Result<BadgerUI> {
+    let previous_badger = match last_badger {
+        Some(b) if &b.badgered_from == current_version => PreviousBadger::FromCurrent { to: b.badgered_to, when: b.when },
+        _ => PreviousBadger::Fresh,
     };
 
-    let should_check = match badgeriness {
-        BadgerEval::Fresh => true,
-        BadgerEval::FromCurrent { when, .. } => has_timeout_expired(when),
+    let should_check = match previous_badger {
+        PreviousBadger::Fresh => true,
+        PreviousBadger::FromCurrent { when, .. } => has_timeout_expired(when),
     };
 
     if !should_check {
@@ -44,42 +46,25 @@ async fn eval_badger(name: &str, current_version: &semver::Version, last_badger:
 
     let latest_version = get_latest_version(name).await?;
 
-    if &latest_version == current_version {
+    if &latest_version.version == current_version {
         return Ok(BadgerUI::None);
     }
 
     // TO CONSIDER: skipping this check and badgering for the same upgrade in case they missed it
-    if let BadgerEval::FromCurrent { to, .. } = badgeriness {
-        if latest_version == to {
+    if let PreviousBadger::FromCurrent { to, .. } = previous_badger {
+        if latest_version.version == to {
             return Ok(BadgerUI::None);
         }
     }
 
-    let result = match eligible_upgrade(&current_version, &latest_version) {
-        Eligibility::Eligible => BadgerUI::BadgerEligible(latest_version),
-        Eligibility::Questionable => BadgerUI::BadgerQuestionable(latest_version),
+    let result = match eligible_upgrade(&current_version, &latest_version, spin_version) {
+        Eligibility::Eligible => BadgerUI::BadgerEligible(latest_version.version),
+        Eligibility::Questionable => BadgerUI::BadgerQuestionable(latest_version.version),
         Eligibility::Ineligible => BadgerUI::None,
     };
 
     Ok(result)
-
-    // What was the last badgering incident for this plugin?
-    // If the incident involved badgering FROM the CURRENT INSTALLED version:
-    //   If we are within the badger timeout, do nothing.
-    //   Otherwise:
-    //     Check for the most recent eligible and questionable versions.
-    //     If the user has already been badgered about these, do nothing.  [Alternate proposal is to badger anyway.]
-    //     If either of these is different from the current installed version, COMMENCE BADGERING.
-    //     Otherwise, do nothing.
-    // If the incident involved badgering from a DIFFERENT version:
-    //   Check for the most recent eligible and questionable versions.
-    //   If either of these is different from the current installed version, COMMENCE BADGERING.
-    //   Otherwise, do nothing.
-    // If the user has NEVER been badgered for this plugin:
-    //   Continue as per "if the incident involved badgering from a different version."
 }
-
-const BADGER_TIMEOUT_DAYS: i64 = 14;
 
 fn has_timeout_expired(from_time: chrono::DateTime<chrono::Utc>) -> bool {
     let timeout = chrono::Duration::days(BADGER_TIMEOUT_DAYS);
@@ -90,36 +75,48 @@ fn has_timeout_expired(from_time: chrono::DateTime<chrono::Utc>) -> bool {
     }
 }
 
-fn eligible_upgrade(from: &semver::Version, to: &semver::Version) -> Eligibility {
-    // TODO: check that the Spin version is compatible!
-    if !to.pre.is_empty() {
+fn eligible_upgrade(from: &semver::Version, to: &PluginVersion, spin_version: &str) -> Eligibility {
+    if !to.version.pre.is_empty() {
         Eligibility::Ineligible
-    } else if to.major == 0 {
+    } else if incompatible_with_current_spin(&to.manifest.spin_compatibility, spin_version) {
+        // TODO: this could skip over an intermediate version which _is_ compatible!
+        // We can only solve this by doing a full pull
+        Eligibility::Ineligible
+    } else if to.version.major == 0 {
         Eligibility::Questionable
-    } else if to.major == from.major {
+    } else if to.version.major == from.major {
         Eligibility::Eligible
     } else {
         Eligibility::Questionable
     }
 }
 
-async fn get_latest_version(name: &str) -> anyhow::Result<semver::Version> {
+fn incompatible_with_current_spin(supported_on: &str, spin_version: &str) -> bool {
+    crate::manifest::is_version_compatible_enough(supported_on, spin_version).unwrap_or(true)
+}
+
+async fn get_latest_version(name: &str) -> anyhow::Result<PluginVersion> {
     // Example: https://raw.githubusercontent.com/fermyon/spin-plugins/main/manifests/py2wasm/py2wasm.json
     let url = format!("https://raw.githubusercontent.com/fermyon/spin-plugins/main/{}/{name}/{name}.json", crate::lookup::PLUGINS_REPO_MANIFESTS_DIRECTORY);
     let resp = reqwest::get(url).await?;
     if !resp.status().is_success() {
         anyhow::bail!("Error response downloading manifest from GitHub: status {}", resp.status());
     }
-    let body: PluginManifest = resp.json().await?;
-    let version = semver::Version::parse(body.version())?;
-    Ok(version)
+    let manifest: PluginManifest = resp.json().await?;
+    let version = semver::Version::parse(manifest.version())?;
+    Ok(PluginVersion { version, manifest })
+}
+
+struct PluginVersion {
+    version: semver::Version,
+    manifest: PluginManifest,
 }
 
 struct BadgerRecordManager {
     db_path: PathBuf,
 }
 
-enum BadgerEval {
+enum PreviousBadger {
     Fresh,
     FromCurrent { to: semver::Version, when: chrono::DateTime<chrono::Utc> },
 }

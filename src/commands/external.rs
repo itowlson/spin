@@ -66,7 +66,7 @@ pub async fn execute_external_subcommand(
     command.args(args);
     command.envs(get_env_vars_map()?);
 
-    let badger_task = tokio::spawn(spin_plugins::badger::badger(plugin_name.to_owned(), plugin_version));
+    let badger_task = tokio::spawn(spin_plugins::badger::badger(plugin_name.to_owned(), plugin_version, SPIN_VERSION));
 
     log::info!("Executing command {:?}", command);
     // Allow user to interact with stdio/stdout of child process
