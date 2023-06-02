@@ -6,10 +6,10 @@ use self::store::{BadgerRecordManager, PreviousBadger};
 
 const BADGER_TIMEOUT_DAYS: i64 = 14;
 
-pub async fn badger(name: String, current_version: String, spin_version: &'static str) -> anyhow::Result<BadgerUI2> {
+pub async fn badger(name: String, current_version: String, spin_version: &'static str) -> anyhow::Result<BadgerUI> {
     // There's no point doing the checks if nobody's around to see the results
     if !std::io::stderr().is_terminal() {
-        return Ok(BadgerUI2::None);
+        return Ok(BadgerUI::None);
     }
 
     let current_version = semver::Version::parse(&current_version)?;
@@ -102,11 +102,6 @@ impl BadgerChecker {
             questionable: highest_questionable_manifest,
         })
     }
-
-    // fn compatible_with_current(&self, plugin_version: &PluginVersion) -> bool {
-    //     let supported_on = &plugin_version.manifest.spin_compatibility;
-    //     crate::manifest::is_version_compatible_enough(supported_on, self.spin_version).unwrap_or(true)
-    // }
 }
 
 // TODO: this is the same as in the CLI command (except without output) - deduplicate
@@ -141,12 +136,12 @@ impl AvailableUpgrades {
         self.eligible.is_none() && self.questionable.is_none()
     }
 
-    fn classify(&self) -> BadgerUI2 {
+    fn classify(&self) -> BadgerUI {
         match (&self.eligible, &self.questionable) {
-            (None, None) => BadgerUI2::None,
-            (Some(e), None) => BadgerUI2::Eligible(e.clone()),
-            (None, Some(q)) => BadgerUI2::Questionable(q.clone()),
-            (Some(e), Some(q)) => BadgerUI2::Both { eligible: e.clone(), questionable: q.clone() },
+            (None, None) => BadgerUI::None,
+            (Some(e), None) => BadgerUI::Eligible(e.clone()),
+            (None, Some(q)) => BadgerUI::Questionable(q.clone()),
+            (Some(e), Some(q)) => BadgerUI::Both { eligible: e.clone(), questionable: q.clone() },
         }
     }
 
@@ -200,21 +195,9 @@ impl std::fmt::Display for PluginVersion {
     }
 }
 
-// pub enum BadgerUI {
-//     None,
-//     BadgerEligible(semver::Version),
-//     BadgerQuestionable(semver::Version),
-// }
-
-pub enum BadgerUI2 {
+pub enum BadgerUI {
     None,
     Eligible(PluginVersion),
     Questionable(PluginVersion),
     Both { eligible: PluginVersion, questionable: PluginVersion },
 }
-
-// enum Eligibility {
-//     Eligible,
-//     Questionable,
-//     Ineligible,
-// }

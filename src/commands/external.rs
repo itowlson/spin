@@ -84,7 +84,7 @@ pub async fn execute_external_subcommand(
     Ok(())
 }
 
-async fn report_badger_result(badger_task: tokio::task::JoinHandle<Result<spin_plugins::badger::BadgerUI2, anyhow::Error>>) {
+async fn report_badger_result(badger_task: tokio::task::JoinHandle<Result<spin_plugins::badger::BadgerUI, anyhow::Error>>) {
     let badger_grace_period = tokio::time::sleep(tokio::time::Duration::from_millis(BADGER_GRACE_PERIOD_MILLIS));
     tokio::select! {
         _ = badger_grace_period => {
@@ -92,19 +92,19 @@ async fn report_badger_result(badger_task: tokio::task::JoinHandle<Result<spin_p
         },
         ui = badger_task => {
             match ui {
-                Ok(Ok(spin_plugins::badger::BadgerUI2::None)) => (),
-                Ok(Ok(spin_plugins::badger::BadgerUI2::Eligible(to))) => {
+                Ok(Ok(spin_plugins::badger::BadgerUI::None)) => (),
+                Ok(Ok(spin_plugins::badger::BadgerUI::Eligible(to))) => {
                     eprintln!();
                     terminal::info!("This plugin can be upgraded.", "Version {to} is available and compatible.");
                     eprintln!("To upgrade, run `{}`.", to.upgrade_command());
                 }
-                Ok(Ok(spin_plugins::badger::BadgerUI2::Questionable(to))) => {
+                Ok(Ok(spin_plugins::badger::BadgerUI::Questionable(to))) => {
                     eprintln!();
                     terminal::info!("This plugin can be upgraded.", "Version {to} is available,");
                     eprintln!("but may not be backward compatible with your current plugin.");
                     eprintln!("To upgrade, run `{}`.", to.upgrade_command());
                 }
-                Ok(Ok(spin_plugins::badger::BadgerUI2::Both { eligible, questionable })) => {
+                Ok(Ok(spin_plugins::badger::BadgerUI::Both { eligible, questionable })) => {
                     eprintln!();
                     terminal::info!("This plugin can be upgraded.", "Version {eligible} is available and compatible.");
                     eprintln!("Version {questionable} is also available, but may not be backward compatible with your current plugin.");
