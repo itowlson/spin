@@ -73,7 +73,7 @@ pub async fn execute_external_subcommand(
     let status = command.status().await?;
     log::info!("Exiting process with {}", status);
 
-    report_badger_result(&plugin_name, badger_task).await;
+    report_badger_result(badger_task).await;
 
     if !status.success() {
         match status.code() {
@@ -84,28 +84,32 @@ pub async fn execute_external_subcommand(
     Ok(())
 }
 
-async fn report_badger_result(plugin_name: &str, badger_task: tokio::task::JoinHandle<Result<spin_plugins::badger::BadgerUI, anyhow::Error>>) {
+async fn report_badger_result(badger_task: tokio::task::JoinHandle<Result<spin_plugins::badger::BadgerUI2, anyhow::Error>>) {
     let badger_grace_period = tokio::time::sleep(tokio::time::Duration::from_millis(BADGER_GRACE_PERIOD_MILLIS));
     tokio::select! {
         _ = badger_grace_period => {
             tracing::info!("Cancelled update badger because plugin had already completed");
         },
-        badger_ui = badger_task => {
-            match badger_ui {
-                Ok(Ok(spin_plugins::badger::BadgerUI::BadgerEligible(to))) => {
+        ui = badger_task => {
+            match ui {
+                Ok(Ok(spin_plugins::badger::BadgerUI2::None)) => (),
+                Ok(Ok(spin_plugins::badger::BadgerUI2::Eligible(to))) => {
                     eprintln!();
-                    // TODO: if we offer "latest compatible" then this will need to be sensitive to if it
-                    // is the 'current' plugin version, as `-v` does not work in that case (at time of writing).
                     terminal::info!("This plugin can be upgraded.", "Version {to} is available and compatible.");
-                    eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name}`.");
+                    eprintln!("To upgrade, run `{}`.", to.upgrade_command());
                 }
-                Ok(Ok(spin_plugins::badger::BadgerUI::BadgerQuestionable(to))) => {
+                Ok(Ok(spin_plugins::badger::BadgerUI2::Questionable(to))) => {
                     eprintln!();
                     terminal::info!("This plugin can be upgraded.", "Version {to} is available,");
                     eprintln!("but may not be backward compatible with your current plugin.");
-                    eprintln!("To upgrade, run `spin plugins update` then `spin plugins upgrade {plugin_name}`.");
+                    eprintln!("To upgrade, run `{}`.", to.upgrade_command());
                 }
-                Ok(Ok(_)) => (),
+                Ok(Ok(spin_plugins::badger::BadgerUI2::Both { eligible, questionable })) => {
+                    eprintln!();
+                    terminal::info!("This plugin can be upgraded.", "Version {eligible} is available and compatible.");
+                    eprintln!("Version {questionable} is also available, but may not be backward compatible with your current plugin.");
+                    eprintln!("To upgrade, run `{}`.", eligible.upgrade_command());
+                }
                 Ok(Err(e)) => {
                     tracing::info!("Error running update badger: {e:#}");
                 }

@@ -13,13 +13,26 @@ pub struct BadgerRecordManager {
 pub struct BadgerRecord {
     name: String,
     badgered_from: semver::Version,
-    badgered_to: semver::Version,
+    badgered_to: Vec<semver::Version>,
     when: chrono::DateTime<chrono::Utc>,
 }
 
 pub enum PreviousBadger {
     Fresh,
-    FromCurrent { to: semver::Version, when: chrono::DateTime<chrono::Utc> },
+    FromCurrent { to: Vec<semver::Version>, when: chrono::DateTime<chrono::Utc> },
+}
+
+impl PreviousBadger {
+    fn includes(&self, version: &semver::Version) -> bool {
+        match self {
+            Self::Fresh => false,
+            Self::FromCurrent { to, .. } => to.contains(version),
+        }
+    }
+
+    pub fn includes_any(&self, version: &[&semver::Version]) -> bool {
+        version.iter().any(|version| self.includes(version))
+    }
 }
 
 impl BadgerRecordManager {
@@ -60,11 +73,11 @@ impl BadgerRecordManager {
         }
     }
 
-    pub async fn record_badger(&self, name: &str, from: &semver::Version, to: &semver::Version) {
+    pub async fn record_badger(&self, name: &str, from: &semver::Version, to: &[&semver::Version]) {
         let new = BadgerRecord {
             name: name.to_owned(),
             badgered_from: from.clone(),
-            badgered_to: to.clone(),
+            badgered_to: to.iter().map(|v| v.clone().clone()).collect(),
             when: chrono::Utc::now(),
         };
 
