@@ -2,19 +2,20 @@ use clap::CommandFactory;
 use shell_completion::{CompletionInput, CompletionSet};
 use spin_cli::SpinApp;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let input = shell_completion::BashCompletionInput::from_env().unwrap();
-    complete(input).suggest();
+    complete(input).await.suggest();
     Ok(())
 }
 
-fn complete(input: impl CompletionInput) -> Vec<String> {
+async fn complete(input: impl CompletionInput) -> Vec<String> {
     match input.arg_index() {
         0 => unreachable!(),
         1 => complete_spin_commands(input),
         _ => {
             let sc = input.args()[1].to_owned();
-            complete_spin_subcommand(&sc, input)
+            complete_spin_subcommand(&sc, input).await
         }
     }
 }
@@ -31,11 +32,12 @@ fn complete_spin_commands(input: impl CompletionInput) -> Vec<String> {
     input.complete_subcommand(candidates)
 }
 
-fn complete_spin_subcommand(name: &str, input: impl CompletionInput) -> Vec<String> {
-    let command = SpinApp::command();
+async fn complete_spin_subcommand(name: &str, input: impl CompletionInput) -> Vec<String> {
+    let command = SpinApp::command().to_owned();
     let Some(subcommand) = command.find_subcommand(name) else {
         return vec![];  // TODO: is there a way to hand off to a plugin?
     };
+    let subcommand = subcommand.to_owned();
 
     if subcommand.has_subcommands() {
         // TODO: make this properly recursive instead of hardwiring to 2 levels of subcommand
@@ -47,14 +49,17 @@ fn complete_spin_subcommand(name: &str, input: impl CompletionInput) -> Vec<Stri
             let Some(sub_subcommand) = subcommand.find_subcommand(ssc) else {
                 return vec![];
             };
-            return complete_cmd(sub_subcommand, 2, input);
+            let sub_subcommand = sub_subcommand.to_owned();
+            return complete_cmd(sub_subcommand, 2, input).await;
         }
     }
 
-    return complete_cmd(subcommand, 1, input);
+    return complete_cmd(subcommand, 1, input).await;
 }
 
-fn complete_cmd(cmd: &clap::Command, depth: usize, input: impl CompletionInput) -> Vec<String> {
+async fn complete_cmd(cmd: clap::Command<'_>, depth: usize, input: impl CompletionInput) -> Vec<String> {
+    let subcommand_key = input.args()[1..(depth + 1)].join("-");
+
     // Strategy:
     // If the PREVIOUS word was a PARAMETERISED option:
     // - Figure out possible values and offer them
@@ -74,8 +79,9 @@ fn complete_cmd(cmd: &clap::Command, depth: usize, input: impl CompletionInput) 
     // Are we in a position of completing a value-ful flag?
     if let Some(prev_option) = prev_arg {
         if prev_option.is_takes_value_set() {
-            // TODO: possible completions
-            return input.complete_subcommand(["bish", "bash", "honk"]);
+            let complete_with = CompleteWith::infer(&subcommand_key, prev_option);
+            return complete_with.completions(input).await;
+            // return input.complete_subcommand(["bish", "bash", "honk"]);
         }
     }
 
@@ -86,10 +92,6 @@ fn complete_cmd(cmd: &clap::Command, depth: usize, input: impl CompletionInput) 
     let first_unfulfilled_positional = if num_positionals == 0 {
         None
     } else {
-        // // This *includes* the arg in progress. The arg may have been completed! E.g.
-        // // spin up -f spin.toml|   => 2
-        // // spin up -f spin.toml |  => 3
-        // let num_args_provided = input.arg_index() - depth;
         let mut num_positionals_provided = 0;
         let in_progress = !(input.args().last().unwrap().is_empty());  // safe to unwrap because we are deep in subcommanery here
         let mut provided = input.args().into_iter().skip(depth + 1);
@@ -125,34 +127,23 @@ fn complete_cmd(cmd: &clap::Command, depth: usize, input: impl CompletionInput) 
             };
 
             if is_cur_positional {
-                // eprintln!("Found a pos!  '{cur}'");
                 num_positionals_provided += 1;
             }
-
-            // if !cur.starts_with('-') {  // if it's a flag, it can't be a positional
-            //     if let Some(p) = prev {
-            //         if p.starts_with('-') {  // was it preceded by a flag?
-            //             if let Some(matching_opt) = cmd.get_arguments().find(|a| a.long_and_short().contains(&p.to_string())) {
-            //                 if !matching_opt.is_takes_value_set() {  // did that flag govern this value?
-            //                     num_positionals_provided += 1;  // No! It's a positional!
-            //                 }
-            //             }
-            //         }
-            //     }
-            // }
 
             last_was_positional = is_cur_positional;
             prev = Some(cur);
 
         }
-        // eprintln!("NPProv = {num_positionals_provided} (of {num_positionals} declared on command)");
         cmd.get_positionals().nth(num_positionals_provided)
     };
 
     match first_unfulfilled_positional {
         Some(arg) => {
-            let cands = ["pish", "posh", "tosh"].iter().map(|s| format!("{s}{num_positionals}{}", arg.get_name())).collect::<Vec<_>>();
-            return input.complete_subcommand(cands.iter().map(|s| s.as_str()));
+            let complete_with = CompleteWith::infer(&subcommand_key, arg);
+            return complete_with.completions(input).await;
+            // // TODO: Use arg name and command context to infer completions
+            // let cands = ["pish", "posh", "tosh"].iter().map(|s| format!("{s}{num_positionals}{}", arg.get_name())).collect::<Vec<_>>();
+            // return input.complete_subcommand(cands.iter().map(|s| s.as_str()));
         },
         None => {
             // TODO: consider positionals
@@ -180,5 +171,82 @@ impl<'a> ArgInfo for clap::Arg<'a> {
             result.push(format!("--{s}"));
         }
         result
+    }
+}
+
+enum CompleteWith {
+    File,
+    Directory,
+    Template,
+    KnownPlugin,
+    InstalledPlugin,
+    None,
+}
+
+impl CompleteWith {
+    fn infer(subcommand_key: &str, governing_arg: &clap::Arg) -> Self {
+        match governing_arg.get_value_hint() {
+            clap::ValueHint::FilePath => CompleteWith::File,
+            clap::ValueHint::DirPath => CompleteWith::Directory,
+            _ => Self::infer_from_names(subcommand_key, governing_arg.get_name())
+        }
+    }
+
+    fn infer_from_names(subcommand_key: &str, arg_name: &str) -> Self {
+        match (subcommand_key, arg_name) {
+            ("add", "template-id") => Self::Template,
+            ("new", "template-id") => Self::Template,
+            ("plugins-install", spin_cli::opts::PLUGIN_NAME_OPT) => Self::KnownPlugin,
+            ("plugins-uninstall", "name") => Self::InstalledPlugin,
+            _ => Self::None,
+        }
+    }
+
+    async fn completions(&self, input: impl CompletionInput) -> Vec<String> {
+        match self {
+            Self::File => input.complete_file(),
+            Self::Directory => input.complete_directory(),
+            Self::Template => input.complete_text(templates().await),
+            Self::KnownPlugin => input.complete_text(known_plugins().await),
+            Self::InstalledPlugin => input.complete_text(installed_plugins().await),
+            Self::None => vec![],
+        }
+    }
+}
+
+async fn templates() -> Vec<String> {
+    if let Ok(mgr) = spin_templates::TemplateManager::try_default() {
+        if let Ok(list) = mgr.list().await {
+            return list.templates.into_iter().map(|t| t.id().to_string()).collect();
+        }
+    }
+    vec![]
+}
+
+async fn known_plugins() -> Vec<String> {
+    if let Ok(mgr) = spin_plugins::manager::PluginManager::try_default() {
+        if let Ok(manifests) = mgr.store().catalogue_manifests() {
+            return manifests.into_iter().map(|m| m.name()).collect();
+        }
+    }
+    vec![]
+}
+
+async fn installed_plugins() -> Vec<String> {
+    if let Ok(mgr) = spin_plugins::manager::PluginManager::try_default() {
+        if let Ok(manifests) = mgr.store().installed_manifests() {
+            return manifests.into_iter().map(|m| m.name()).collect();
+        }
+    }
+    vec![]
+}
+
+trait CompletionInputExt {
+    fn complete_text(&self, options: Vec<String>) -> Vec<String>;
+}
+
+impl<T : CompletionInput> CompletionInputExt for T {
+    fn complete_text(&self, options: Vec<String>) -> Vec<String> {
+        self.complete_subcommand(options.iter().map(|s| s.as_str()))
     }
 }
