@@ -198,6 +198,8 @@ impl CompleteWith {
             ("new", "template-id") => Self::Template,
             ("plugins-install", spin_cli::opts::PLUGIN_NAME_OPT) => Self::KnownPlugin,
             ("plugins-uninstall", "name") => Self::InstalledPlugin,
+            ("plugins-upgrade", "name") => Self::InstalledPlugin,
+            ("templates-uninstall", "template-id") => Self::Template,
             _ => Self::None,
         }
     }
