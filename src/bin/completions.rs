@@ -59,6 +59,7 @@ async fn complete_spin_subcommand(name: &str, input: impl CompletionInput) -> Ve
 
 async fn complete_cmd(cmd: clap::Command<'_>, depth: usize, input: impl CompletionInput) -> Vec<String> {
     let subcommand_key = input.args()[1..(depth + 1)].join("-");
+    let forwards_args = ["up", "build", "watch"].contains(&(subcommand_key.as_str()));  // RUST Y U TREAT ME THIS WAY
 
     // Strategy:
     // If the PREVIOUS word was a PARAMETERISED option:
@@ -74,21 +75,41 @@ async fn complete_cmd(cmd: clap::Command<'_>, depth: usize, input: impl Completi
     //   - If the current word is NON-EMTPY:
     //     - Offer the options AND the NEXT positional if completable
 
-    let prev_arg = cmd.get_arguments().find(|o| o.is_match(input.previous_word()));
+    // IMPORTANT: this strategy *completely breaks* for `spin up` because it technically has
+    // an infinitely repeatable positional parameter for `trigger_args`.  Also `build` and
+    // `watch` which have `up_args`.
+
+    let app = SpinApp::command();
+    let mut args = cmd.get_arguments().map(|a| a.to_owned()).collect::<Vec<_>>();
+    if forwards_args {
+        let trigger_args = app.find_subcommand("trigger").unwrap().find_subcommand("http").unwrap().get_arguments().map(|a| a.to_owned()).collect::<Vec<_>>();
+        args.extend(trigger_args.into_iter());
+
+        if subcommand_key != "up" {
+            let up_args = app.find_subcommand("up").unwrap().get_arguments().map(|a| a.to_owned()).collect::<Vec<_>>();
+            args.extend(up_args.into_iter());
+            args.retain(|a| a.get_name() != "up-args");
+        }
+        args.retain(|a| a.get_name() != "trigger-args");
+    }
+    let prev_arg = args.iter().find(|o| o.is_match(input.previous_word()));
 
     // Are we in a position of completing a value-ful flag?
     if let Some(prev_option) = prev_arg {
         if prev_option.is_takes_value_set() {
             let complete_with = CompleteWith::infer(&subcommand_key, prev_option);
             return complete_with.completions(input).await;
-            // return input.complete_subcommand(["bish", "bash", "honk"]);
         }
     }
 
     // No: previous word was not a flag, or was unary (or was unknown)
 
     // Are all positional parameters satisfied?
-    let num_positionals = cmd.get_positionals().count();
+    let num_positionals = if forwards_args {
+        0
+    } else {
+        cmd.get_positionals().count()
+    };
     let first_unfulfilled_positional = if num_positionals == 0 {
         None
     } else {
@@ -141,13 +162,10 @@ async fn complete_cmd(cmd: clap::Command<'_>, depth: usize, input: impl Completi
         Some(arg) => {
             let complete_with = CompleteWith::infer(&subcommand_key, arg);
             return complete_with.completions(input).await;
-            // // TODO: Use arg name and command context to infer completions
-            // let cands = ["pish", "posh", "tosh"].iter().map(|s| format!("{s}{num_positionals}{}", arg.get_name())).collect::<Vec<_>>();
-            // return input.complete_subcommand(cands.iter().map(|s| s.as_str()));
         },
         None => {
             // TODO: consider positionals
-            let all_args: Vec<_> = cmd.get_arguments().flat_map(|o| o.long_and_short()).collect();
+            let all_args: Vec<_> = args.iter().flat_map(|o| o.long_and_short()).collect();
             return input.complete_subcommand(all_args.iter().map(|s| s.as_str()));
         },
     }
