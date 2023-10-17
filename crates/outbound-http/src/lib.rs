@@ -1,22 +1,29 @@
 pub mod allowed_http_hosts;
+#[cfg(feature = "runtime")]
 mod host_component;
 
 use anyhow::Result;
 use http::HeaderMap;
+#[cfg(feature = "runtime")]
 use reqwest::{Client, Url};
+#[cfg(feature = "runtime")]
 use spin_app::MetadataKey;
+#[cfg(feature = "runtime")]
 use spin_core::async_trait;
+#[cfg(feature = "runtime")]
 use spin_world::v1::{
     http as outbound_http,
     http_types::{Headers, HttpError, Method, Request, Response},
 };
 
 use allowed_http_hosts::AllowedHttpHosts;
+#[cfg(feature = "runtime")]
 pub use host_component::OutboundHttpComponent;
 
 pub const ALLOWED_HTTP_HOSTS_KEY: MetadataKey<Vec<String>> = MetadataKey::new("allowed_http_hosts");
 
 /// A very simple implementation for outbound HTTP requests.
+#[cfg(feature = "runtime")]
 #[derive(Default, Clone)]
 pub struct OutboundHttp {
     /// List of hosts guest modules are allowed to make requests to.
@@ -27,6 +34,7 @@ pub struct OutboundHttp {
     client: Option<Client>,
 }
 
+#[cfg(feature = "runtime")]
 impl OutboundHttp {
     /// Check if guest module is allowed to send request to URL, based on the list of
     /// allowed hosts defined by the runtime. If the url passed in is a relative path,
@@ -43,6 +51,7 @@ impl OutboundHttp {
     }
 }
 
+#[cfg(feature = "runtime")]
 #[async_trait]
 impl outbound_http::Host for OutboundHttp {
     async fn send_request(&mut self, req: Request) -> Result<Result<Response, HttpError>> {
@@ -95,6 +104,7 @@ impl outbound_http::Host for OutboundHttp {
     }
 }
 
+#[cfg(feature = "runtime")]
 fn log_reqwest_error(err: reqwest::Error) -> HttpError {
     let error_desc = if err.is_timeout() {
         "timeout error"
@@ -118,6 +128,7 @@ fn log_reqwest_error(err: reqwest::Error) -> HttpError {
     HttpError::RuntimeError
 }
 
+#[cfg(feature = "runtime")]
 fn method_from(m: Method) -> http::Method {
     match m {
         Method::Get => http::Method::GET,
@@ -130,6 +141,7 @@ fn method_from(m: Method) -> http::Method {
     }
 }
 
+#[cfg(feature = "runtime")]
 async fn response_from_reqwest(res: reqwest::Response) -> Result<Response, HttpError> {
     let status = res.status().as_u16();
     let headers = response_headers(res.headers()).map_err(|_| HttpError::RuntimeError)?;
@@ -148,6 +160,7 @@ async fn response_from_reqwest(res: reqwest::Response) -> Result<Response, HttpE
     })
 }
 
+#[cfg(feature = "runtime")]
 fn request_headers(h: Headers) -> anyhow::Result<HeaderMap> {
     let mut res = HeaderMap::new();
     for (k, v) in h {
@@ -159,6 +172,7 @@ fn request_headers(h: Headers) -> anyhow::Result<HeaderMap> {
     Ok(res)
 }
 
+#[cfg(feature = "runtime")]
 fn response_headers(h: &HeaderMap) -> anyhow::Result<Option<Vec<(String, String)>>> {
     let mut res: Vec<(String, String)> = vec![];
 
@@ -172,6 +186,7 @@ fn response_headers(h: &HeaderMap) -> anyhow::Result<Option<Vec<(String, String)
     Ok(Some(res))
 }
 
+#[cfg(feature = "runtime")]
 fn host(url: &str) -> Option<String> {
     url::Url::parse(url)
         .ok()

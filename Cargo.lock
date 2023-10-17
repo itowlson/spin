@@ -5860,7 +5860,6 @@ dependencies = [
  "shellexpand 3.1.0",
  "spin-app",
  "spin-common",
- "spin-config",
  "spin-manifest",
  "tempfile",
  "terminal",

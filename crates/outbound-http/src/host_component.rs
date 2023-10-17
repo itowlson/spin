@@ -1,3 +1,5 @@
+#![cfg(feature = "runtime")]
+
 use anyhow::Result;
 
 use spin_app::DynamicHostComponent;
