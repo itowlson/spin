@@ -6,10 +6,8 @@ use anyhow::Result;
 use http::HeaderMap;
 #[cfg(feature = "runtime")]
 use reqwest::{Client, Url};
-#[cfg(feature = "runtime")]
 use spin_app::MetadataKey;
-#[cfg(feature = "runtime")]
-use spin_core::async_trait;
+use spin_app::async_trait;
 #[cfg(feature = "runtime")]
 use spin_world::v1::{
     http as outbound_http,
