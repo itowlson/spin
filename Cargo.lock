@@ -5637,6 +5637,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -5921,7 +5922,6 @@ dependencies = [
  "spin-loader",
  "spin-manifest",
  "spin-testing",
- "spin-trigger",
  "tempfile",
  "tokio",
  "tokio-util 0.7.9",
