@@ -1,3 +1,5 @@
+#![cfg(feature = "runtime")]
+
 // This file contains code copied from https://github.com/deislabs/wagi
 // The copied code's license is in this directory under LICENSE.wagi
 

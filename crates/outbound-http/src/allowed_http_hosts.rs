@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use reqwest::Url;
 
 const ALLOW_ALL_HOSTS: &str = "insecure:allow-all";
 
@@ -115,14 +114,14 @@ fn parse_allowed_http_host_from_unschemed(text: &str) -> Result<AllowedHttpHost,
     // Url type which gets paid big bucks to do it properly. (But preserve the
     // original un-URL-ified string for use in error messages.)
     let urlised = format!("http://{}", text);
-    let fake_url = Url::parse(&urlised)
+    let fake_url = url::Url::parse(&urlised)
         .map_err(|_| format!("{} isn't a valid host or host:port string", text))?;
     parse_allowed_http_host_from_http_url(&fake_url, text)
 }
 
 fn parse_allowed_http_host_from_schemed(text: &str) -> Result<AllowedHttpHost, String> {
     let url =
-        Url::parse(text).map_err(|e| format!("{} isn't a valid HTTP host URL: {}", text, e))?;
+        url::Url::parse(text).map_err(|e| format!("{} isn't a valid HTTP host URL: {}", text, e))?;
 
     if !matches!(url.scheme(), "http" | "https") {
         return Err(format!("{} isn't a valid host or host:port string", text));
@@ -131,7 +130,7 @@ fn parse_allowed_http_host_from_schemed(text: &str) -> Result<AllowedHttpHost, S
     parse_allowed_http_host_from_http_url(&url, text)
 }
 
-fn parse_allowed_http_host_from_http_url(url: &Url, text: &str) -> Result<AllowedHttpHost, String> {
+fn parse_allowed_http_host_from_http_url(url: &url::Url, text: &str) -> Result<AllowedHttpHost, String> {
     let host = url
         .host_str()
         .ok_or_else(|| format!("{} doesn't contain a host name", text))?;
@@ -165,6 +164,7 @@ fn partition_results<T, E>(results: Vec<Result<T, E>>) -> (Vec<T>, Vec<E>) {
 #[cfg(test)]
 mod test {
     use super::*;
+    use url::Url;
 
     #[test]
     fn test_allowed_hosts_accepts_http_url() {
