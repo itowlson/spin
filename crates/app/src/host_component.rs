@@ -1,3 +1,5 @@
+#![cfg(feature = "runtime")]
+
 use std::{any::Any, sync::Arc};
 
 use anyhow::Context;
