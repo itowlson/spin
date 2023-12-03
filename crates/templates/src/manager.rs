@@ -112,6 +112,12 @@ impl TemplateManager {
         Ok(Self::new(store))
     }
 
+    /// Creates a `TemplateManager` for a custom install location.
+    pub fn in_dir(root: impl AsRef<Path>) -> Self {
+        let store = TemplateStore::new(root);
+        Self::new(store)
+    }
+
     pub(crate) fn new(store: TemplateStore) -> Self {
         Self { store }
     }
