@@ -3610,6 +3610,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spin-expressions"
+version = "2.2.0-pre0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "spin-app",
+ "thiserror",
+]
+
+[[package]]
 name = "spin-key-value"
 version = "2.2.0-pre0"
 dependencies = [
@@ -3839,6 +3849,7 @@ dependencies = [
  "spin-common",
  "spin-componentize",
  "spin-core",
+ "spin-expressions",
  "spin-key-value",
  "spin-key-value-azure",
  "spin-key-value-redis",
@@ -3874,6 +3885,7 @@ dependencies = [
  "serde",
  "spin-app",
  "spin-core",
+ "spin-expressions",
  "spin-world",
  "thiserror",
  "tokio",

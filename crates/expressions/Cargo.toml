@@ -1,0 +1,15 @@
+[package]
+name = "spin-expressions"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+spin-app = { path = "../app" }
+thiserror = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+toml = "0.5"

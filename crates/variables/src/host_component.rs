@@ -6,7 +6,7 @@ use spin_app::{AppComponent, DynamicHostComponent};
 use spin_core::{async_trait, HostComponent};
 use spin_world::v2::variables;
 
-use crate::{Error, Key, Provider, Resolver};
+use spin_expressions::{Error, Key, Provider, Resolver};
 
 pub struct VariablesHostComponent {
     providers: Mutex<Vec<Box<dyn Provider>>>,
@@ -78,13 +78,13 @@ impl variables::Host for ComponentVariables {
         Ok(async {
             // Set by DynamicHostComponent::update_data
             let component_id = self.component_id.as_deref().unwrap();
-            let key = Key::new(&key)?;
-            Ok(self
-                .resolver
+            let key = Key::new(&key).to_var()?;
+            self.resolver
                 .get()
                 .unwrap()
                 .resolve(component_id, key)
-                .await?)
+                .await
+                .to_var()
         }
         .await)
     }
@@ -107,13 +107,17 @@ impl spin_world::v1::config::Host for ComponentVariables {
     }
 }
 
-impl From<Error> for variables::Error {
-    fn from(err: Error) -> Self {
-        match err {
-            Error::InvalidName(msg) => Self::InvalidName(msg),
-            Error::Undefined(msg) => Self::Undefined(msg),
-            Error::Provider(err) => Self::Provider(err.to_string()),
-            other => Self::Other(format!("{other}")),
-        }
+trait AsVariablesResult<T> {
+    fn to_var(self) -> Result<T, variables::Error>;
+}
+
+impl<T> AsVariablesResult<T> for Result<T, spin_expressions::Error> {
+    fn to_var(self) -> Result<T, variables::Error> {
+        self.map_err(|e| match e {
+            Error::InvalidName(msg) => variables::Error::InvalidName(msg),
+            Error::Undefined(msg) => variables::Error::Undefined(msg),
+            Error::Provider(err) => variables::Error::Provider(err.to_string()),
+            other => variables::Error::Other(format!("{other}")),
+        })
     }
 }
