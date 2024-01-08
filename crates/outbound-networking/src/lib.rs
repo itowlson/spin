@@ -283,7 +283,9 @@ pub enum AllowedHostsConfig {
 }
 
 impl AllowedHostsConfig {
-    pub fn parse<S: AsRef<str>>(hosts: &[S]) -> anyhow::Result<AllowedHostsConfig> {
+    // TODO: deal to this
+    #[cfg(test)]
+    fn parse<S: AsRef<str>>(hosts: &[S]) -> anyhow::Result<AllowedHostsConfig> {
         if hosts.len() == 1 && hosts[0].as_ref() == "insecure:allow-all" {
             bail!("'insecure:allow-all' is not allowed - use '*://*:*' instead if you really want to allow all outbound traffic'")
         }
@@ -315,6 +317,54 @@ impl AllowedHostsConfig {
 impl Default for AllowedHostsConfig {
     fn default() -> Self {
         Self::SpecificHosts(Vec::new())
+    }
+}
+
+pub enum AllowedHostsPattern {
+    Static(AllowedHostConfig),
+    Dynamic(spin_expressions::Template),
+}
+
+impl AllowedHostsPattern {
+    fn parse<S: AsRef<str>>(host: S) -> anyhow::Result<Self> {
+        let template = spin_expressions::Template::new(host.as_ref())?;
+        let pattern = if template.has_exprs() {
+            Self::Dynamic(template)
+        } else {
+            Self::Static(AllowedHostConfig::parse(host.as_ref())?)
+        };
+        Ok(pattern)
+    }
+}
+
+pub struct AllowedHostsPatterns {
+    patterns: Vec<AllowedHostsPattern>,
+}
+
+impl AllowedHostsPatterns {
+    pub fn parse<S: AsRef<str>>(hosts: &[S]) -> anyhow::Result<AllowedHostsPatterns> {
+        if hosts.len() == 1 && hosts[0].as_ref() == "insecure:allow-all" {
+            bail!("'insecure:allow-all' is not allowed - use '*://*:*' instead if you really want to allow all outbound traffic'")
+        }
+
+        let patterns = hosts.iter().map(AllowedHostsPattern::parse).collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Self { patterns })
+    }
+
+    pub fn resolve(self) -> anyhow::Result<AllowedHostsConfig> {
+        let mut allowed = Vec::with_capacity(self.patterns.len());
+        for pattern in self.patterns.into_iter() {
+            match pattern {
+                AllowedHostsPattern::Static(s) => allowed.push(s),
+                AllowedHostsPattern::Dynamic(_) => {
+                    // let res = spin_expressions::Resolver::new(vec![])?;
+                    // let host = res.resolve_template(&t).await?;
+                    // let ahc = AllowedHostConfig::parse(host)?;
+                    // allowed.push(ahc);
+                }
+            }
+        }
+        Ok(AllowedHostsConfig::SpecificHosts(allowed))
     }
 }
 

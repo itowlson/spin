@@ -11,7 +11,8 @@ impl TriggerHooks for Network {
         let hosts = component
             .get_metadata(spin_outbound_networking::ALLOWED_HOSTS_KEY)?
             .unwrap_or_default();
-        let allowed_hosts = spin_outbound_networking::AllowedHostsConfig::parse(&hosts)?;
+        let allowed_host_patterns = spin_outbound_networking::AllowedHostsPatterns::parse(&hosts)?;
+        let allowed_hosts = allowed_host_patterns.resolve()?;
         match allowed_hosts {
             spin_outbound_networking::AllowedHostsConfig::All => {
                 store_builder.inherit_limited_network()

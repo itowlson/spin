@@ -68,8 +68,10 @@ impl DynamicHostComponent for OutboundMysql {
         let hosts = component
             .get_metadata(spin_outbound_networking::ALLOWED_HOSTS_KEY)?
             .unwrap_or_default();
-        data.allowed_hosts = spin_outbound_networking::AllowedHostsConfig::parse(&hosts)
-            .context("`allowed_outbound_hosts` contained an invalid url")?;
+        data.allowed_hosts = spin_outbound_networking::AllowedHostsPatterns::parse(&hosts)
+            .context("`allowed_outbound_hosts` contained an invalid url")?
+            .resolve()
+            .context("substituting variables into `allowed_outbound_hosts` failed or produced an invalid URL")?;
         Ok(())
     }
 }

@@ -6045,6 +6045,7 @@ version = "2.2.0-pre0"
 dependencies = [
  "anyhow",
  "ipnet",
+ "spin-expressions",
  "spin-locked-app",
  "terminal",
  "url",
