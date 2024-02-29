@@ -1,4 +1,4 @@
-use std::{io::Cursor, net::SocketAddr};
+use std::{io::Cursor, net::SocketAddr, sync::Arc};
 
 use anyhow::{anyhow, ensure, Context, Result};
 use async_trait::async_trait;
@@ -20,7 +20,7 @@ pub struct WagiHttpExecutor {
 impl HttpExecutor for WagiHttpExecutor {
     async fn execute(
         &self,
-        engine: &TriggerAppEngine<HttpTrigger>,
+        engine: &Arc<TriggerAppEngine<HttpTrigger>>,
         component: &str,
         base: &str,
         raw_route: &str,
