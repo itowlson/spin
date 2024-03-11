@@ -104,13 +104,22 @@ impl LocalLoader {
         }))
         .await?;
 
+        let mut host_requirements = ValuesMapBuilder::new();
+        host_requirements.string("local_service_chaining", "required");
+        let host_requirements = host_requirements.build();
+
+        let mut must_understand = vec![];
+        if !host_requirements.is_empty() {
+            must_understand.push("host_requirements".to_owned());
+        }
+
         drop(sloth_guard);
 
         Ok(LockedApp {
             spin_lock_version: Default::default(),
             metadata,
-            must_understand: Default::default(),
-            host_requirements: Default::default(),
+            must_understand,
+            host_requirements,
             variables,
             triggers,
             components,

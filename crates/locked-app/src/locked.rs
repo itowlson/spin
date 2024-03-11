@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use spin_serde::FixedVersion;
+use spin_serde::FixedVersionBackwardCompatible;
 
 use crate::{metadata::MetadataExt, values::ValuesMap};
 
@@ -15,7 +15,7 @@ pub type LockedMap<T> = std::collections::BTreeMap<String, T>;
 #[derive(Clone, Debug, Deserialize)]
 pub struct LockedApp {
     /// Locked schema version
-    pub spin_lock_version: FixedVersion<0>,
+    pub spin_lock_version: FixedVersionBackwardCompatible<1>,
     /// Identifies fields in the LockedApp that the host must process if present.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub must_understand: Vec<String>,
@@ -187,4 +187,59 @@ pub struct Variable {
     /// If set, the variable's value may be sensitive and e.g. shouldn't be logged.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub secret: bool,
+}
+
+#[cfg(test)]
+mod test {
+    use crate::values::ValuesMapBuilder;
+
+    use super::LockedApp;
+
+    #[test]
+    fn locked_app_with_no_host_reqs_serialises_as_v0_and_v0_deserialises_as_v1() {
+        let locked_app = LockedApp {
+            spin_lock_version: Default::default(),
+            must_understand: Default::default(),
+            metadata: Default::default(),
+            host_requirements: Default::default(),
+            variables: Default::default(),
+            triggers: Default::default(),
+            components: Default::default(),
+        };
+
+        let json = locked_app.to_json().unwrap();
+
+        assert!(String::from_utf8_lossy(&json).contains(r#""spin_lock_version": 0"#));
+
+        let reloaded = LockedApp::from_json(&json).unwrap();
+
+        assert_eq!(1, Into::<usize>::into(reloaded.spin_lock_version));
+    }
+
+    #[test]
+    fn locked_app_with_host_reqs_serialises_as_v1() {
+        let mut host_requirements = ValuesMapBuilder::new();
+        host_requirements.string("foo", "bar");
+        let host_requirements = host_requirements.build();
+
+        let locked_app = LockedApp {
+            spin_lock_version: Default::default(),
+            must_understand: vec!["host_requirements".to_owned()],
+            metadata: Default::default(),
+            host_requirements,
+            variables: Default::default(),
+            triggers: Default::default(),
+            components: Default::default(),
+        };
+
+        let json = locked_app.to_json().unwrap();
+
+        assert!(String::from_utf8_lossy(&json).contains(r#""spin_lock_version": 1"#));
+
+        let reloaded = LockedApp::from_json(&json).unwrap();
+
+        assert_eq!(1, Into::<usize>::into(reloaded.spin_lock_version));
+        assert_eq!(1, reloaded.must_understand.len());
+        assert_eq!(1, reloaded.host_requirements.len());
+    }
 }
