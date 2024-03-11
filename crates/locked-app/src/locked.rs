@@ -12,7 +12,7 @@ use crate::{metadata::MetadataExt, values::ValuesMap};
 pub type LockedMap<T> = std::collections::BTreeMap<String, T>;
 
 /// A LockedApp represents a "fully resolved" Spin application.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct LockedApp {
     /// Locked schema version
     pub spin_lock_version: FixedVersion<0>,
@@ -26,6 +26,25 @@ pub struct LockedApp {
     pub triggers: Vec<LockedTrigger>,
     /// Application components
     pub components: Vec<LockedComponent>,
+}
+
+impl Serialize for LockedApp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        use serde::ser::SerializeStruct;
+        let mut la = serializer.serialize_struct("LockedApp", 5)?;
+        la.serialize_field("spin_lock_version", &0)?;
+        if !self.metadata.is_empty() {
+            la.serialize_field("metadata", &self.metadata)?;
+        }
+        if !self.variables.is_empty() {
+            la.serialize_field("variables", &self.variables)?;
+        }
+        la.serialize_field("triggers", &self.triggers)?;
+        la.serialize_field("components", &self.components)?;
+        la.end()
+    }
 }
 
 impl LockedApp {
