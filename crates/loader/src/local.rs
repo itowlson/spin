@@ -109,6 +109,8 @@ impl LocalLoader {
         Ok(LockedApp {
             spin_lock_version: Default::default(),
             metadata,
+            must_understand: Default::default(),
+            host_requirements: Default::default(),
             variables,
             triggers,
             components,

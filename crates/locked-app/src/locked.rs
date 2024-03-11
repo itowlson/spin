@@ -16,9 +16,15 @@ pub type LockedMap<T> = std::collections::BTreeMap<String, T>;
 pub struct LockedApp {
     /// Locked schema version
     pub spin_lock_version: FixedVersion<0>,
+    /// Identifies fields in the LockedApp that the host must process if present.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub must_understand: Vec<String>,
     /// Application metadata
     #[serde(default, skip_serializing_if = "ValuesMap::is_empty")]
     pub metadata: ValuesMap,
+    /// Application metadata
+    #[serde(default, skip_serializing_if = "ValuesMap::is_empty")]
+    pub host_requirements: ValuesMap,
     /// Custom config variables
     #[serde(default, skip_serializing_if = "LockedMap::is_empty")]
     pub variables: LockedMap<Variable>,
@@ -33,10 +39,23 @@ impl Serialize for LockedApp {
     where
         S: serde::Serializer {
         use serde::ser::SerializeStruct;
-        let mut la = serializer.serialize_struct("LockedApp", 5)?;
-        la.serialize_field("spin_lock_version", &0)?;
+
+        let version = if self.must_understand.is_empty() && self.host_requirements.is_empty() {
+            0
+        } else {
+            1
+        };
+
+        let mut la = serializer.serialize_struct("LockedApp", 7)?;
+        la.serialize_field("spin_lock_version", &version)?;
+        if !self.must_understand.is_empty() {
+            la.serialize_field("must_understand", &self.must_understand)?;
+        }
         if !self.metadata.is_empty() {
             la.serialize_field("metadata", &self.metadata)?;
+        }
+        if !self.host_requirements.is_empty() {
+            la.serialize_field("host_requirements", &self.host_requirements)?;
         }
         if !self.variables.is_empty() {
             la.serialize_field("variables", &self.variables)?;
