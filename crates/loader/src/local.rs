@@ -105,12 +105,12 @@ impl LocalLoader {
         .await?;
 
         let mut host_requirements = ValuesMapBuilder::new();
-        host_requirements.string("local_service_chaining", "required");
+        host_requirements.string(spin_locked_app::locked::SERVICE_CHAINING_KEY, spin_locked_app::locked::HOST_REQ_REQUIRED);
         let host_requirements = host_requirements.build();
 
         let mut must_understand = vec![];
         if !host_requirements.is_empty() {
-            must_understand.push("host_requirements".to_owned());
+            must_understand.push(spin_locked_app::locked::HOST_REQUIREMENTS_KEY.to_owned());
         }
 
         drop(sloth_guard);

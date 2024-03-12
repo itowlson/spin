@@ -11,6 +11,22 @@ use crate::{metadata::MetadataExt, values::ValuesMap};
 /// A String-keyed map with deterministic serialization order.
 pub type LockedMap<T> = std::collections::BTreeMap<String, T>;
 
+/// If present in `must_understand`, the host must support all features
+/// in the app's `host_requirements` section.
+pub const HOST_REQUIREMENTS_KEY: &str = "host_requirements";
+
+/// If present and required in `host_requirements`, the host must support
+/// local service chaining (*.spin.internal) or reject the app.
+pub const SERVICE_CHAINING_KEY: &str = "local_service_chaining";
+
+/// Indicates that a host feature is optional. This is the default and is
+/// equivalent to omitting the feature from `host_requirements`.
+pub const HOST_REQ_OPTIONAL: &str = "optional";
+/// Indicates that a host feature is required.
+pub const HOST_REQ_REQUIRED: &str = "required";
+
+const UNDERSTOOD: [&str; 1] = [HOST_REQUIREMENTS_KEY];
+
 /// A LockedApp represents a "fully resolved" Spin application.
 #[derive(Clone, Debug, Deserialize)]
 pub struct LockedApp {
