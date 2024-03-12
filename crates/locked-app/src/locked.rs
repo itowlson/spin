@@ -60,7 +60,8 @@ pub struct LockedApp {
 impl Serialize for LockedApp {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         use serde::ser::SerializeStruct;
 
         let version = if self.must_understand.is_empty() && self.host_requirements.is_empty() {
@@ -274,7 +275,8 @@ mod test {
             "triggers": [],
             "components": [],
             "never_create_field_with_this_name": 123
-        })).unwrap();
+        }))
+        .unwrap();
         let locked = LockedApp::from_json(&j).unwrap();
         assert_eq!(0, locked.triggers.len());
     }
@@ -288,9 +290,14 @@ mod test {
             "triggers": [],
             "components": [],
             "never_create_field_with_this_name": 123
-        })).unwrap();
-        let err = LockedApp::from_json(&j).expect_err("Should have refused to deserialise due to non-understood must-understand field");
-        assert!(err.to_string().contains("never_create_field_with_this_name"));
+        }))
+        .unwrap();
+        let err = LockedApp::from_json(&j).expect_err(
+            "Should have refused to deserialise due to non-understood must-understand field",
+        );
+        assert!(err
+            .to_string()
+            .contains("never_create_field_with_this_name"));
     }
 
     #[test]
@@ -305,7 +312,8 @@ mod test {
             "triggers": [],
             "components": [],
             "never_create_field_with_this_name": 123
-        })).unwrap();
+        }))
+        .unwrap();
         let locked = LockedApp::from_json(&j).unwrap();
         assert_eq!(1, locked.must_understand.len());
         assert_eq!(1, locked.host_requirements.len());

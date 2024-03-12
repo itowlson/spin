@@ -108,7 +108,10 @@ impl LocalLoader {
 
         let mut host_requirements = ValuesMapBuilder::new();
         if app_requires_service_chaining {
-            host_requirements.string(spin_locked_app::locked::SERVICE_CHAINING_KEY, spin_locked_app::locked::HOST_REQ_REQUIRED);
+            host_requirements.string(
+                spin_locked_app::locked::SERVICE_CHAINING_KEY,
+                spin_locked_app::locked::HOST_REQ_REQUIRED,
+            );
         }
         let host_requirements = host_requirements.build();
 
@@ -541,7 +544,11 @@ fn file_url(path: impl AsRef<Path>) -> Result<String> {
 }
 
 fn requires_service_chaining(component: &spin_manifest::schema::v2::Component) -> bool {
-    component.normalized_allowed_outbound_hosts().unwrap_or_default().iter().any(|h| is_chaining_host(h))
+    component
+        .normalized_allowed_outbound_hosts()
+        .unwrap_or_default()
+        .iter()
+        .any(|h| is_chaining_host(h))
 }
 
 fn is_chaining_host(pattern: &str) -> bool {
@@ -554,7 +561,7 @@ fn is_chaining_host(pattern: &str) -> bool {
     match allowed.host() {
         HostConfig::List(hosts) => hosts.iter().any(|h| h.ends_with(".spin.internal")),
         HostConfig::AnySubdomain(domain) => domain == ".spin.internal",
-        _ => false
+        _ => false,
     }
 }
 
