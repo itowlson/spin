@@ -552,8 +552,8 @@ fn is_chaining_host(pattern: &str) -> bool {
     };
 
     match allowed.host() {
-        HostConfig::List(hosts) => hosts.iter().any(|h| ),
-        HostConfig::AnySubdomain(domain) => what,
+        HostConfig::List(hosts) => hosts.iter().any(|h| h.ends_with(".spin.internal")),
+        HostConfig::AnySubdomain(domain) => domain == ".spin.internal",
         _ => false
     }
 }
