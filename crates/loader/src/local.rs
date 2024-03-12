@@ -105,6 +105,7 @@ impl LocalLoader {
         .await?;
 
         let mut host_requirements = ValuesMapBuilder::new();
+        // TODO: only if any component AOHs to a *.spin.internal address
         host_requirements.string(spin_locked_app::locked::SERVICE_CHAINING_KEY, spin_locked_app::locked::HOST_REQ_REQUIRED);
         let host_requirements = host_requirements.build();
 
