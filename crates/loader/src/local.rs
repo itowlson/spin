@@ -79,6 +79,8 @@ impl LocalLoader {
 
         let metadata = locked_metadata(application, triggers.keys().cloned())?;
 
+        let app_requires_service_chaining = components.values().any(requires_service_chaining);
+
         let variables = variables
             .into_iter()
             .map(|(name, v)| Ok((name.to_string(), locked_variable(v)?)))
@@ -105,13 +107,14 @@ impl LocalLoader {
         .await?;
 
         let mut host_requirements = ValuesMapBuilder::new();
-        // TODO: only if any component AOHs to a *.spin.internal address
-        host_requirements.string(spin_locked_app::locked::SERVICE_CHAINING_KEY, spin_locked_app::locked::HOST_REQ_REQUIRED);
+        if app_requires_service_chaining {
+            host_requirements.string(spin_locked_app::locked::SERVICE_CHAINING_KEY, spin_locked_app::locked::HOST_REQ_REQUIRED);
+        }
         let host_requirements = host_requirements.build();
 
         let mut must_understand = vec![];
         if !host_requirements.is_empty() {
-            must_understand.push(spin_locked_app::locked::HOST_REQUIREMENTS_KEY.to_owned());
+            must_understand.push(spin_locked_app::locked::MustUnderstand::HostRequirements);
         }
 
         drop(sloth_guard);
@@ -535,6 +538,24 @@ fn file_url(path: impl AsRef<Path>) -> Result<String> {
     let abs_path = safe_canonicalize(path)
         .with_context(|| format!("Couldn't resolve `{}`", path.display()))?;
     Ok(Url::from_file_path(abs_path).unwrap().to_string())
+}
+
+fn requires_service_chaining(component: &spin_manifest::schema::v2::Component) -> bool {
+    component.normalized_allowed_outbound_hosts().unwrap_or_default().iter().any(|h| is_chaining_host(h))
+}
+
+fn is_chaining_host(pattern: &str) -> bool {
+    use spin_outbound_networking::{AllowedHostConfig, HostConfig};
+
+    let Ok(allowed) = AllowedHostConfig::parse(pattern) else {
+        return false;
+    };
+
+    match allowed.host() {
+        HostConfig::List(hosts) => hosts.iter().any(|h| ),
+        HostConfig::AnySubdomain(domain) => what,
+        _ => false
+    }
 }
 
 const SLOTH_WARNING_DELAY_MILLIS: u64 = 1250;

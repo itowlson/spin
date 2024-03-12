@@ -25,18 +25,31 @@ pub const HOST_REQ_OPTIONAL: &str = "optional";
 /// Indicates that a host feature is required.
 pub const HOST_REQ_REQUIRED: &str = "required";
 
+/// Identifies fields in the LockedApp that the host must process if present.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MustUnderstand {
+    /// If present in `must_understand`, the host must support all features
+    /// in the app's `host_requirements` section.
+    HostRequirements,
+}
+
 /// A LockedApp represents a "fully resolved" Spin application.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct LockedApp {
     /// Locked schema version
     pub spin_lock_version: FixedVersionBackwardCompatible<1>,
     /// Identifies fields in the LockedApp that the host must process if present.
-    pub must_understand: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub must_understand: Vec<MustUnderstand>,
     /// Application metadata
+    #[serde(default, skip_serializing_if = "ValuesMap::is_empty")]
     pub metadata: ValuesMap,
     /// Application metadata
+    #[serde(default, skip_serializing_if = "ValuesMap::is_empty")]
     pub host_requirements: ValuesMap,
     /// Custom config variables
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variables: LockedMap<Variable>,
     /// Application triggers
     pub triggers: Vec<LockedTrigger>,
@@ -73,109 +86,6 @@ impl Serialize for LockedApp {
         la.serialize_field("triggers", &self.triggers)?;
         la.serialize_field("components", &self.components)?;
         la.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for LockedApp {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de> {
-        struct LockedAppVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for LockedAppVisitor {
-            type Value = LockedApp;
-        
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("struct LockedApp")
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-                where
-                    A: serde::de::MapAccess<'de>, {
-                let mut spin_lock_version = None;
-                let mut must_understand = None;
-                let mut metadata = None;
-                let mut host_requirements = None;
-                let mut variables = None;
-                let mut triggers = None;
-                let mut components = None;
-                let mut discarded = vec![];
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        "spin_lock_version" => {
-                            if spin_lock_version.is_some() {
-                                return Err(serde::de::Error::duplicate_field("spin_lock_version"));
-                            }
-                            spin_lock_version = Some(map.next_value()?);
-                        },
-                        "must_understand" => {
-                            if must_understand.is_some() {
-                                return Err(serde::de::Error::duplicate_field("must_understand"));
-                            }
-                            must_understand = Some(map.next_value()?);
-                        },
-                        "metadata" => {
-                            if metadata.is_some() {
-                                return Err(serde::de::Error::duplicate_field("metadata"));
-                            }
-                            metadata = Some(map.next_value()?);
-                        },
-                        "host_requirements" => {
-                            if host_requirements.is_some() {
-                                return Err(serde::de::Error::duplicate_field("host_requirements"));
-                            }
-                            host_requirements = Some(map.next_value()?);
-                        },
-                        "variables" => {
-                            if variables.is_some() {
-                                return Err(serde::de::Error::duplicate_field("variables"));
-                            }
-                            variables = Some(map.next_value()?);
-                        },
-                        "triggers" => {
-                            if triggers.is_some() {
-                                return Err(serde::de::Error::duplicate_field("triggers"));
-                            }
-                            triggers = Some(map.next_value()?);
-                        },
-                        "components" => {
-                            if components.is_some() {
-                                return Err(serde::de::Error::duplicate_field("components"));
-                            }
-                            components = Some(map.next_value()?);
-                        },
-                        unknown => {
-                            _ = map.next_value::<serde_json::Value>();
-                            discarded.push(unknown);
-                        },
-                    }
-                }
-
-                let locked = LockedApp {
-                    spin_lock_version: spin_lock_version.unwrap_or_default(),
-                    must_understand: must_understand.unwrap_or_default(),
-                    metadata: metadata.unwrap_or_default(),
-                    host_requirements: host_requirements.unwrap_or_default(),
-                    variables: variables.unwrap_or_default(),
-                    triggers: triggers.ok_or_else(|| serde::de::Error::missing_field("triggers"))?,
-                    components: components.ok_or_else(|| serde::de::Error::missing_field("components"))?,
-                };
-
-                let not_understood = discarded.into_iter().filter(|key| locked.must_understand.contains(&key.to_string())).collect::<Vec<_>>();
-                if !not_understood.is_empty() {
-                    let message = format!("This version of Spin does not support the following features required by this application: {}", not_understood.join(", "));
-                    return Err(serde::de::Error::custom(message));
-                }
-
-                Ok(locked)
-            }
-        }
-
-        deserializer.deserialize_struct(
-            "LockedApp",
-            &["spin_lock_version", "must_understand", "metadata", "host_requirements", "variables", "triggers", "components"],
-            LockedAppVisitor
-        )
     }
 }
 
@@ -337,7 +247,7 @@ mod test {
 
         let locked_app = LockedApp {
             spin_lock_version: Default::default(),
-            must_understand: vec!["host_requirements".to_owned()],
+            must_understand: vec![MustUnderstand::HostRequirements],
             metadata: Default::default(),
             host_requirements,
             variables: Default::default(),
