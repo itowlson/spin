@@ -10,13 +10,19 @@ use spin_manifest::{schema::v2, ManifestVersion};
 /// is also returned via the second part of the return value tuple.
 pub async fn component_build_configs(
     manifest_file: impl AsRef<Path>,
-) -> Result<(Vec<ComponentBuildInfo>, Option<spin_manifest::Error>)> {
+) -> Result<(Vec<ComponentBuildInfo>, Vec<DeploymentTarget>, Option<spin_manifest::Error>)> {
     let manifest = spin_manifest::manifest_from_file(&manifest_file);
     match manifest {
-        Ok(manifest) => Ok((build_configs_from_manifest(manifest), None)),
-        Err(e) => fallback_load_build_configs(&manifest_file)
-            .await
-            .map(|bc| (bc, Some(e))),
+        Ok(manifest) => {
+            let dt = deployment_targets_from_manifest(&manifest);
+            let bc = build_configs_from_manifest(manifest);
+            Ok((bc, dt, None))
+        }
+        Err(e) => {
+            let bc = fallback_load_build_configs(&manifest_file).await?;
+            let dt = fallback_load_deployment_targets(&manifest_file).await?;
+            Ok((bc, dt, Some(e)))
+        }
     }
 }
 
@@ -33,6 +39,15 @@ fn build_configs_from_manifest(
             build: c.build,
         })
         .collect()
+}
+
+fn deployment_targets_from_manifest(
+    manifest: &spin_manifest::schema::v2::AppManifest,
+) -> Vec<DeploymentTarget> {
+    manifest
+        .application
+        .targets
+        .clone()
 }
 
 async fn fallback_load_build_configs(
@@ -57,12 +72,37 @@ async fn fallback_load_build_configs(
     })
 }
 
+async fn fallback_load_deployment_targets(
+    manifest_file: impl AsRef<Path>,
+) -> Result<Vec<DeploymentTarget>> {
+    let manifest_text = tokio::fs::read_to_string(manifest_file).await?;
+    Ok(match ManifestVersion::detect(&manifest_text)? {
+        ManifestVersion::V1 => Default::default(),
+        ManifestVersion::V2 => {
+            let table: toml::value::Table = toml::from_str(&manifest_text)?;
+            table
+                .get("application")
+                .and_then(|a| a.as_table())
+                .and_then(|t| t.get("targets"))
+                .and_then(|arr| arr.as_array())
+                .map(|v| v.as_slice())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|t| t.as_str())
+                .map(|s| s.to_owned())
+                .collect()
+        }
+    })
+}
+
 #[derive(Deserialize)]
 pub struct ComponentBuildInfo {
     #[serde(default)]
     pub id: String,
     pub build: Option<v2::ComponentBuildConfig>,
 }
+
+pub type DeploymentTarget = String;
 
 #[derive(Deserialize)]
 struct ManifestV1BuildInfo {

@@ -17,7 +17,7 @@ use crate::manifest::component_build_configs;
 
 /// If present, run the build command of each component.
 pub async fn build(manifest_file: &Path, component_ids: &[String]) -> Result<()> {
-    let (components, manifest_err) =
+    let (components, deployment_targets, manifest_err) =
         component_build_configs(manifest_file)
             .await
             .with_context(|| {
