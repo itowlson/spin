@@ -1,0 +1,26 @@
+[package]
+name = "spin-environments"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+futures = "0.3"
+indexmap = "2.2.6"
+miette = "7.2.0"
+semver = "1.0"
+spin-common = { path = "../common" }
+spin-componentize = { path = "../componentize" }
+spin-manifest = { path = "../manifest" }
+tracing = { workspace = true }
+wac-cli = "0.5.0"
+wac-parser = "0.5.0"
+wac-resolver = "0.5.0"
+wac-types = "0.5.0"
+wasm-pkg-loader = "0.4.1"
+wit-component = "0.214"
+wit-parser = "0.214"
+
+[lints]
+workspace = true

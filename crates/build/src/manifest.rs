@@ -4,50 +4,57 @@ use std::{collections::BTreeMap, path::Path};
 
 use spin_manifest::{schema::v2, ManifestVersion};
 
+use crate::deployment::DeploymentTargets;
+
 /// Returns a map of component IDs to [`v2::ComponentBuildConfig`]s for the
 /// given (v1 or v2) manifest path. If the manifest cannot be loaded, the
 /// function attempts fallback: if fallback succeeds, result is Ok but the load error
 /// is also returned via the second part of the return value tuple.
 pub async fn component_build_configs(
     manifest_file: impl AsRef<Path>,
-) -> Result<(Vec<ComponentBuildInfo>, Vec<DeploymentTarget>, Option<spin_manifest::Error>)> {
+) -> Result<(Vec<ComponentBuildInfo>, DeploymentTargets, Result<spin_manifest::schema::v2::AppManifest, spin_manifest::Error>)> {
     let manifest = spin_manifest::manifest_from_file(&manifest_file);
     match manifest {
-        Ok(manifest) => {
+        Ok(mut manifest) => {
+            spin_manifest::normalize::normalize_manifest(&mut manifest);
+            let bc = build_configs_from_manifest(&manifest);
             let dt = deployment_targets_from_manifest(&manifest);
-            let bc = build_configs_from_manifest(manifest);
-            Ok((bc, dt, None))
+            Ok((bc, dt, Ok(manifest)))
         }
         Err(e) => {
             let bc = fallback_load_build_configs(&manifest_file).await?;
             let dt = fallback_load_deployment_targets(&manifest_file).await?;
-            Ok((bc, dt, Some(e)))
+            Ok((bc, dt, Err(e)))
         }
     }
 }
 
 fn build_configs_from_manifest(
-    mut manifest: spin_manifest::schema::v2::AppManifest,
+    manifest: &spin_manifest::schema::v2::AppManifest,
 ) -> Vec<ComponentBuildInfo> {
-    spin_manifest::normalize::normalize_manifest(&mut manifest);
-
     manifest
         .components
-        .into_iter()
+        .iter()
         .map(|(id, c)| ComponentBuildInfo {
             id: id.to_string(),
-            build: c.build,
+            build: c.build.clone(),
         })
         .collect()
 }
 
 fn deployment_targets_from_manifest(
     manifest: &spin_manifest::schema::v2::AppManifest,
-) -> Vec<DeploymentTarget> {
-    manifest
+) -> DeploymentTargets {
+    let target_environments = manifest
         .application
         .targets
-        .clone()
+        .clone();
+    // let components = manifest
+    //     .components
+    //     .iter()
+    //     .map(|(id, c)| (id.to_string(), c.source.clone()))
+    //     .collect();
+    DeploymentTargets::new(target_environments)
 }
 
 async fn fallback_load_build_configs(
@@ -74,13 +81,20 @@ async fn fallback_load_build_configs(
 
 async fn fallback_load_deployment_targets(
     manifest_file: impl AsRef<Path>,
-) -> Result<Vec<DeploymentTarget>> {
+) -> Result<DeploymentTargets> {
+    // fn try_parse_component_source(c: (&String, &toml::Value)) -> Option<(String, spin_manifest::schema::v2::ComponentSource)> {
+    //     let (id, ctab) = c;
+    //     let cs = ctab.as_table()
+    //         .and_then(|c| c.get("source"))
+    //         .and_then(|cs| spin_manifest::schema::v2::ComponentSource::deserialize(cs.clone()).ok());
+    //     cs.map(|cs| (id.to_string(), cs))
+    // }
     let manifest_text = tokio::fs::read_to_string(manifest_file).await?;
     Ok(match ManifestVersion::detect(&manifest_text)? {
         ManifestVersion::V1 => Default::default(),
         ManifestVersion::V2 => {
             let table: toml::value::Table = toml::from_str(&manifest_text)?;
-            table
+            let target_environments = table
                 .get("application")
                 .and_then(|a| a.as_table())
                 .and_then(|t| t.get("targets"))
@@ -90,7 +104,13 @@ async fn fallback_load_deployment_targets(
                 .iter()
                 .filter_map(|t| t.as_str())
                 .map(|s| s.to_owned())
-                .collect()
+                .collect();
+            // let components = table
+            //     .get("component")
+            //     .and_then(|cs| cs.as_table())
+            //     .map(|table| table.iter().filter_map(try_parse_component_source).collect())
+            //     .unwrap_or_default();
+            DeploymentTargets::new(target_environments)
         }
     })
 }
@@ -101,8 +121,6 @@ pub struct ComponentBuildInfo {
     pub id: String,
     pub build: Option<v2::ComponentBuildConfig>,
 }
-
-pub type DeploymentTarget = String;
 
 #[derive(Deserialize)]
 struct ManifestV1BuildInfo {

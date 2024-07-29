@@ -9,6 +9,7 @@ anyhow = "1.0.57"
 futures = "0.3.21"
 serde = { version = "1.0", features = [ "derive" ] }
 spin-common = { path = "../common" }
+spin-environments = { path = "../environments" }  # TODO: it would be good to break this dependency because not everything should have to drag this dep around
 spin-manifest = { path = "../manifest" }
 terminal = { path = "../terminal" }
 subprocess = "0.2.8"

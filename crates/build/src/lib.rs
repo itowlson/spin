@@ -2,6 +2,7 @@
 
 //! A library for building Spin components.
 
+mod deployment;
 mod manifest;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -17,7 +18,7 @@ use crate::manifest::component_build_configs;
 
 /// If present, run the build command of each component.
 pub async fn build(manifest_file: &Path, component_ids: &[String]) -> Result<()> {
-    let (components, deployment_targets, manifest_err) =
+    let (components, deployment_targets, manifest) =
         component_build_configs(manifest_file)
             .await
             .with_context(|| {
@@ -30,11 +31,17 @@ pub async fn build(manifest_file: &Path, component_ids: &[String]) -> Result<()>
 
     let build_result = build_components(component_ids, components, app_dir);
 
-    if let Some(e) = manifest_err {
+    if let Err(e) = &manifest {
         terminal::warn!("The manifest has errors not related to the Wasm component build. Error details:\n{e:#}");
     }
 
-    build_result
+    build_result?;
+
+    if let Ok(manifest) = &manifest {
+        spin_environments::validate_application_against_environment_ids(deployment_targets.iter(), manifest).await?;
+    }
+
+    Ok(())
 }
 
 fn build_components(
