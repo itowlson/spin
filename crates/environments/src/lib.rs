@@ -14,6 +14,12 @@ struct TargetWorld {
     world_name: String,
 }
 
+impl TargetWorld {
+    fn versioned_name(&self) -> String {
+        format!("{}/{}@{}", self.wit_package, self.world_name, self.package_ver)
+    }
+}
+
 type TriggerType = String;
 
 pub struct TargetEnvironment {
@@ -95,40 +101,40 @@ pub async fn validate_component_against_environments(envs: &[TargetEnvironment],
     let worlds = envs.iter()
         .map(|e| e.environments.get(trigger_type).ok_or(anyhow!("env {} doesn't support trigger type {trigger_type}", e.name)))
         .collect::<Result<std::collections::HashSet<_>, _>>()?;
-    validate_file_against_worlds(worlds.iter().map(|w| &w.world_name), wasm_file).await?;
+    validate_file_against_worlds(worlds.into_iter(), wasm_file).await?;
     Ok(())
 }
 
-pub async fn validate_file_against_worlds<S: AsRef<str> + std::fmt::Display>(target_worlds: impl Iterator<Item = S>, wasm_file: &Path) -> anyhow::Result<()> {
+async fn validate_file_against_worlds(target_worlds: impl Iterator<Item = &TargetWorld>, wasm_file: &Path) -> anyhow::Result<()> {
     let raw_wasm = std::fs::read(wasm_file)
         .with_context(|| format!("Couldn't read Wasm file {}", quoted_path(wasm_file)))?;
     // FUTURE: take in manifest composition as well
     let cooked_wasm = spin_componentize::componentize_if_necessary(&raw_wasm)
         .with_context(|| format!("Couldn't componentize Wasm file {}", quoted_path(wasm_file)))?;
     
-    for target_world_name in target_worlds {
-        validate_wasm_against_world(target_world_name.as_ref(), cooked_wasm.as_ref()).await?;
-        tracing::info!("Validated component {wasm_file:?} against target world {target_world_name}");
+    for target_world in target_worlds {
+        validate_wasm_against_world(target_world, cooked_wasm.as_ref()).await?;
+        tracing::info!("Validated component {wasm_file:?} against target world {}", target_world.versioned_name());
     }
 
     tracing::info!("Validated component {wasm_file:?} against all target worlds");
     Ok(())
 }
 
-pub async fn validate_file_against_world(target_world_name: &str, wasm_file: &Path) -> anyhow::Result<()> {
-    let raw_wasm = std::fs::read(wasm_file)
-        .with_context(|| format!("Couldn't read Wasm file {}", quoted_path(wasm_file)))?;
-    // FUTURE: take in manifest composition as well
-    let cooked_wasm = spin_componentize::componentize_if_necessary(&raw_wasm)
-        .with_context(|| format!("Couldn't componentize Wasm file {}", quoted_path(wasm_file)))?;
+// async fn validate_file_against_world(target_world: &TargetWorld, wasm_file: &Path) -> anyhow::Result<()> {
+//     let raw_wasm = std::fs::read(wasm_file)
+//         .with_context(|| format!("Couldn't read Wasm file {}", quoted_path(wasm_file)))?;
+//     // FUTURE: take in manifest composition as well
+//     let cooked_wasm = spin_componentize::componentize_if_necessary(&raw_wasm)
+//         .with_context(|| format!("Couldn't componentize Wasm file {}", quoted_path(wasm_file)))?;
 
-    validate_wasm_against_world(target_world_name, cooked_wasm.as_ref()).await?;
-    tracing::info!("Validated component {wasm_file:?} against target world {target_world_name}");
-    Ok(())
-}
+//     validate_wasm_against_world(target_world, cooked_wasm.as_ref()).await?;
+//     tracing::info!("Validated component {wasm_file:?} against target world {}", target_world.versioned_name());
+//     Ok(())
+// }
 
-pub async fn validate_wasm_against_world(target_world_name: &str, cooked_wasm: &[u8]) -> anyhow::Result<()> {
-    validate_wasm_wac(target_world_name, "root:component", "1.0.0", cooked_wasm).await
+async fn validate_wasm_against_world(target_world: &TargetWorld, cooked_wasm: &[u8]) -> anyhow::Result<()> {
+    validate_wasm_wac(target_world, "root:component", "1.0.0", cooked_wasm).await
 }
 
 // pub async fn validate_wasm_wt(target_world_name: &str, wasm: &[u8]) -> anyhow::Result<()> {
@@ -144,44 +150,48 @@ pub async fn validate_wasm_against_world(target_world_name: &str, cooked_wasm: &
 //     Ok(())
 // }
 
-pub async fn validate_wasm_wac(target_world: &str, comp_name: &str, comp_version: &str, wasm: &[u8]) -> anyhow::Result<()> {
+async fn validate_wasm_wac(target_world: &TargetWorld, comp_name: &str, comp_version: &str, wasm: &[u8]) -> anyhow::Result<()> {
     let fake_span = || miette::SourceSpan::new(miette::SourceOffset::from_location("internal", 0, 0), 0);
     
     let comp_version_owned = semver::Version::parse(comp_version).unwrap();
     let comp_version_ref = Some(&comp_version_owned);
-    let comp_qname = format!("{comp_name}@{comp_version}");
+    // let comp_qname = format!("{comp_name}@{comp_version}");
 
     let comp_pkgname = wac_parser::PackageName {
-        string: comp_qname.as_str(),
+        string: comp_name, // comp_qname.as_str(),
         name: comp_name,
-        version: comp_version_ref.cloned(),
+        version: None, // comp_version_ref.cloned(),
         span: fake_span(),
     };
 
-    let target_str = target_world;
-    let Some((target_fname, target_ver)) = target_world.split_once('@') else {
-        anyhow::bail!("target world has no version");
-    };
-    let Some((target_name, target_seg)) = target_fname.split_once('/') else {
-        anyhow::bail!("target world should be `ns:name/world@ver`");
-    };
+    let target_str = target_world.versioned_name();
+    let target_ver = target_world.package_ver.as_str();
+    let target_name = target_world.wit_package.to_string();
+    let target_seg = target_world.world_name.as_str();
+    // let Some((target_fname, target_ver)) = target_world.split_once('@') else {
+    //     anyhow::bail!("target world has no version");
+    // };
+    // let Some((target_name, target_seg)) = target_fname.split_once('/') else {
+    //     anyhow::bail!("target world should be `ns:name/world@ver`");
+    // };
     let target_ver = Some(semver::Version::parse(target_ver)?);
 
     // What to call the result of the no-op composition. This has to be
     // distinct from the component being validated, even though the actual
     // content would be identical!
-    let output_qname = format!("{comp_name}-val@{comp_version}");
+    let output_name = format!("{comp_name}-val");
+    let output_qname = format!("{output_name}@{comp_version}");
     let output = wac_parser::PackageName {
         string: output_qname.as_str(),
-        name: comp_name,
+        name: output_name.as_str(),
         version: comp_version_ref.cloned(),
         span: fake_span(),
     };
 
     // The target world against which to validate
     let validation_target = wac_parser::PackagePath {
-        string: target_str,
-        name: target_name,
+        string: target_str.as_str(),
+        name: target_name.as_str(),
         segments: target_seg,
         version: target_ver,
         span: fake_span(),
@@ -198,7 +208,7 @@ pub async fn validate_wasm_wac(target_world: &str, comp_name: &str, comp_version
             targets: Some(validation_target),
         },
         statements: vec![
-            // let c = new the:component { ... };
+            // let c = new the:component { ... };  // NOTE: THIS MUST NOT BE VERSIONED
             wac_parser::Statement::Let(wac_parser::LetStatement {
                 docs: vec![],
                 id: comp_id.clone(),
@@ -214,7 +224,7 @@ pub async fn validate_wasm_wac(target_world: &str, comp_name: &str, comp_version
                     postfix: vec![],
                 }
             }),
-            // export c...
+            // export c...;
             wac_parser::Statement::Export(wac_parser::ExportStatement {
                 docs: vec![],
                 expr: wac_parser::Expr {
@@ -227,25 +237,33 @@ pub async fn validate_wasm_wac(target_world: &str, comp_name: &str, comp_version
         ],
     };
 
+    // println!("** DOC: {doc:?}");
+
     let mut refpkgs = IndexMap::new();
     let fspgkver = semver::Version::parse("2.0.0").unwrap();
     let fspkgkey = wac_types::BorrowedPackageKey::from_name_and_version("fermyon:spin", Some(&fspgkver));
     refpkgs.insert(fspkgkey, fake_span());
-    let whpgkver = semver::Version::parse("0.2.0").unwrap();
-    let whpkgkey = wac_types::BorrowedPackageKey::from_name_and_version("wasi:http", Some(&whpgkver));
-    refpkgs.insert(whpkgkey, fake_span());
-    let whpgkver = semver::Version::parse("0.2.0").unwrap();
-    let whpkgkey = wac_types::BorrowedPackageKey::from_name_and_version("wasi:cli", Some(&whpgkver));
-    refpkgs.insert(whpkgkey, fake_span());
+    // let whpgkver = semver::Version::parse("0.2.0").unwrap();
+    // let whpkgkey = wac_types::BorrowedPackageKey::from_name_and_version("wasi:http", Some(&whpgkver));
+    // refpkgs.insert(whpkgkey, fake_span());
+    // let whpgkver = semver::Version::parse("0.2.0").unwrap();
+    // let whpkgkey = wac_types::BorrowedPackageKey::from_name_and_version("wasi:cli", Some(&whpgkver));
+    // refpkgs.insert(whpkgkey, fake_span());
 
     let reg_resolver = wac_resolver::RegistryPackageResolver::new(Some("wa.dev"), None).await?;
     let mut packages = reg_resolver.resolve(&refpkgs).await?;
-    
-    let compkey = wac_types::BorrowedPackageKey::from_name_and_version(comp_name, comp_version_ref);
-    packages.insert(compkey, wasm.to_owned().to_vec());
+
+    // let compkey = wac_types::BorrowedPackageKey::from_name_and_version(comp_name, comp_version_ref);
+    let compkey2 = wac_types::BorrowedPackageKey::from_name_and_version(comp_name, None);
+    // println!("** INSERTING {compkey}");
+    // packages.insert(compkey, wasm.to_owned().to_vec());
+    packages.insert(compkey2, wasm.to_owned().to_vec());
 
     match doc.resolve(packages) {
-        Ok(_) => Ok(()),
+        Ok(r) => {
+            println!("resolution: {:?}", r.into_graph());
+            Ok(())
+        },
         Err(wac_parser::resolution::Error::TargetMismatch { kind, name, world, .. }) => {
             // This one doesn't seem to get hit at the moment - we get MissingTargetExport instead.  We would expect TargetMismatch for other cases including imports though.
             Err(anyhow!("World {world} expects an {} named {name}", kind.to_string().to_lowercase()))

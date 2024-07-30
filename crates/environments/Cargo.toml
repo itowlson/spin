@@ -14,7 +14,6 @@ spin-common = { path = "../common" }
 spin-componentize = { path = "../componentize" }
 spin-manifest = { path = "../manifest" }
 tracing = { workspace = true }
-wac-cli = "0.5.0"
 wac-parser = "0.5.0"
 wac-resolver = "0.5.0"
 wac-types = "0.5.0"
