@@ -5,8 +5,6 @@ use indexmap::IndexMap;
 use spin_common::ui::quoted_path;
 use wasm_pkg_loader::PackageRef;
 
-mod stolen_from_wasm_tools;
-
 #[derive(Debug, Eq, Hash, PartialEq)]
 struct TargetWorld {
     wit_package: PackageRef,
