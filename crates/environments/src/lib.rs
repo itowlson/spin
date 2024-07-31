@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context};
-use indexmap::IndexMap;
 use spin_common::ui::quoted_path;
 use wasm_pkg_loader::PackageRef;
 
@@ -132,136 +131,32 @@ async fn validate_file_against_worlds(target_worlds: impl Iterator<Item = &Targe
 // }
 
 async fn validate_wasm_against_world(target_world: &TargetWorld, cooked_wasm: &[u8]) -> anyhow::Result<()> {
-    validate_wasm_wac(target_world, "root:component", "1.0.0", cooked_wasm).await
+    validate_wasm_wac(target_world, "root:component", cooked_wasm).await
 }
 
-// pub async fn validate_wasm_wt(target_world_name: &str, wasm: &[u8]) -> anyhow::Result<()> {
-//     let resolve = stolen_from_wasm_tools::WitResolve {
-//         wit: stolen_from_wasm_tools::WitSource::Dir(PathBuf::from("/home/ivan/github/spin/wit")),
-//         features: vec![],
-//         all_features: false,
-//     };
-//     let (resolve, pkg_ids) = resolve.load().await?;
-//     let world = resolve.select_world(&pkg_ids, Some(target_world_name))?;
-
-//     wit_component::targets(&resolve, world, wasm)?;
-//     Ok(())
-// }
-
-async fn validate_wasm_wac(target_world: &TargetWorld, comp_name: &str, comp_version: &str, wasm: &[u8]) -> anyhow::Result<()> {
-    let fake_span = || miette::SourceSpan::new(miette::SourceOffset::from_location("internal", 0, 0), 0);
-    
-    let comp_version_owned = semver::Version::parse(comp_version).unwrap();
-    let comp_version_ref = Some(&comp_version_owned);
-    // let comp_qname = format!("{comp_name}@{comp_version}");
-
-    let comp_pkgname = wac_parser::PackageName {
-        string: comp_name, // comp_qname.as_str(),
-        name: comp_name,
-        version: None, // comp_version_ref.cloned(),
-        span: fake_span(),
-    };
-
+async fn validate_wasm_wac(target_world: &TargetWorld, comp_name: &str, wasm: &[u8]) -> anyhow::Result<()> {
     let target_str = target_world.versioned_name();
-    let target_ver = target_world.package_ver.as_str();
-    let target_name = target_world.wit_package.to_string();
-    let target_seg = target_world.world_name.as_str();
-    // let Some((target_fname, target_ver)) = target_world.split_once('@') else {
-    //     anyhow::bail!("target world has no version");
-    // };
-    // let Some((target_name, target_seg)) = target_fname.split_once('/') else {
-    //     anyhow::bail!("target world should be `ns:name/world@ver`");
-    // };
-    let target_ver = Some(semver::Version::parse(target_ver)?);
 
-    // What to call the result of the no-op composition. This has to be
-    // distinct from the component being validated, even though the actual
-    // content would be identical!
-    let output_name = format!("{comp_name}-val");
-    let output_qname = format!("{output_name}@{comp_version}");
-    let output = wac_parser::PackageName {
-        string: output_qname.as_str(),
-        name: output_name.as_str(),
-        version: comp_version_ref.cloned(),
-        span: fake_span(),
-    };
+    let wac_text = format!(r#"
+    package validate:component@1.0.0 targets {target_str};
+    let c = new {comp_name} {{ ... }};
+    export c...;
+    "#);
 
-    // The target world against which to validate
-    let validation_target = wac_parser::PackagePath {
-        string: target_str.as_str(),
-        name: target_name.as_str(),
-        segments: target_seg,
-        version: target_ver,
-        span: fake_span(),
-    };
+    let doc = wac_parser::Document::parse(&wac_text)?;
 
-    // The identifier by which the WAC doc refers to the (no-op) composition
-    let comp_id = wac_parser::Ident { string: "c", span: fake_span() };
+    let compkey = wac_types::BorrowedPackageKey::from_name_and_version(comp_name, None);
 
-    let doc = wac_parser::Document {
-        docs: vec![],
-        // package the:component-val@0.1.2 targets the:target;
-        directive: wac_parser::PackageDirective {
-            package: output,
-            targets: Some(validation_target),
-        },
-        statements: vec![
-            // let c = new the:component { ... };  // NOTE: THIS MUST NOT BE VERSIONED
-            wac_parser::Statement::Let(wac_parser::LetStatement {
-                docs: vec![],
-                id: comp_id.clone(),
-                expr: wac_parser::Expr {
-                    primary: wac_parser::PrimaryExpr::New(wac_parser::NewExpr {
-                        span: fake_span(),
-                        package: comp_pkgname,
-                        arguments: vec![
-                            wac_parser::InstantiationArgument::Fill(fake_span()),
-                        ]
-                    }),
-                    span: fake_span(),
-                    postfix: vec![],
-                }
-            }),
-            // export c...;
-            wac_parser::Statement::Export(wac_parser::ExportStatement {
-                docs: vec![],
-                expr: wac_parser::Expr {
-                    span: fake_span(),
-                    primary: wac_parser::PrimaryExpr::Ident(comp_id.clone()),
-                    postfix: vec![],
-                },
-                options: wac_parser::ExportOptions::Spread(fake_span()),
-            })
-        ],
-    };
-
-    // println!("** DOC: {doc:?}");
-
-    let mut refpkgs = IndexMap::new();
-    let fspgkver = semver::Version::parse("2.0.0").unwrap();
-    let fspkgkey = wac_types::BorrowedPackageKey::from_name_and_version("fermyon:spin", Some(&fspgkver));
-    refpkgs.insert(fspkgkey, fake_span());
-    // let whpgkver = semver::Version::parse("0.2.0").unwrap();
-    // let whpkgkey = wac_types::BorrowedPackageKey::from_name_and_version("wasi:http", Some(&whpgkver));
-    // refpkgs.insert(whpkgkey, fake_span());
-    // let whpgkver = semver::Version::parse("0.2.0").unwrap();
-    // let whpkgkey = wac_types::BorrowedPackageKey::from_name_and_version("wasi:cli", Some(&whpgkver));
-    // refpkgs.insert(whpkgkey, fake_span());
+    let mut refpkgs = wac_resolver::packages(&doc)?;
+    refpkgs.retain(|k, _| k != &compkey);
 
     let reg_resolver = wac_resolver::RegistryPackageResolver::new(Some("wa.dev"), None).await?;
     let mut packages = reg_resolver.resolve(&refpkgs).await?;
 
-    // let compkey = wac_types::BorrowedPackageKey::from_name_and_version(comp_name, comp_version_ref);
-    let compkey2 = wac_types::BorrowedPackageKey::from_name_and_version(comp_name, None);
-    // println!("** INSERTING {compkey}");
-    // packages.insert(compkey, wasm.to_owned().to_vec());
-    packages.insert(compkey2, wasm.to_owned().to_vec());
+    packages.insert(compkey, wasm.to_owned().to_vec());
 
     match doc.resolve(packages) {
-        Ok(r) => {
-            println!("resolution: {:?}", r.into_graph());
-            Ok(())
-        },
+        Ok(_) => Ok(()),
         Err(wac_parser::resolution::Error::TargetMismatch { kind, name, world, .. }) => {
             // This one doesn't seem to get hit at the moment - we get MissingTargetExport instead.  We would expect TargetMismatch for other cases including imports though.
             Err(anyhow!("World {world} expects an {} named {name}", kind.to_string().to_lowercase()))
