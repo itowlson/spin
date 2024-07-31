@@ -38,7 +38,10 @@ pub async fn build(manifest_file: &Path, component_ids: &[String]) -> Result<()>
     build_result?;
 
     if let Ok(manifest) = &manifest {
-        spin_environments::validate_application_against_environment_ids(deployment_targets.iter(), manifest).await?;
+        let resolution_context = spin_environments::ResolutionContext {
+            base_dir: manifest_file.parent().unwrap().to_owned(),
+        };
+        spin_environments::validate_application_against_environment_ids(deployment_targets.iter(), manifest, &resolution_context).await?;
     }
 
     Ok(())
