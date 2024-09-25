@@ -7227,6 +7227,7 @@ dependencies = [
  "rustls-pemfile 2.1.3",
  "rustls-pki-types",
  "serde 1.0.210",
+ "spin-app",
  "spin-expressions",
  "spin-factor-variables",
  "spin-factor-wasi",

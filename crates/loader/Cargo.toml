@@ -24,7 +24,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 shellexpand = "3"
 spin-common = { path = "../common" }
-spin-factor-outbound-networking = { path = "../factor-outbound-networking" }
+spin-factor-outbound-networking = { path = "../factor-outbound-networking", default-features = false }
 spin-locked-app = { path = "../locked-app" }
 spin-manifest = { path = "../manifest" }
 spin-serde = { path = "../serde" }

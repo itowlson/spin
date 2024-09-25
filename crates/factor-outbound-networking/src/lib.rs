@@ -1,18 +1,23 @@
 mod config;
 pub mod runtime_config;
 
-use futures_util::{
-    future::{BoxFuture, Shared},
-    FutureExt,
-};
+use futures_util::future::{BoxFuture, Shared};
+#[cfg(feature = "runtime")]
+use futures_util::FutureExt;
+#[cfg(feature = "runtime")]
 use runtime_config::RuntimeConfig;
+#[cfg(feature = "runtime")]
 use spin_factor_variables::VariablesFactor;
+#[cfg(feature = "runtime")]
 use spin_factor_wasi::{SocketAddrUse, WasiFactor};
+#[cfg(feature = "runtime")]
 use spin_factors::{
     anyhow::{self, Context},
     ConfigureAppContext, Error, Factor, FactorInstanceBuilder, PrepareContext, RuntimeFactors,
 };
-use std::{collections::HashMap, sync::Arc};
+#[cfg(feature = "runtime")]
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub use config::{
     allowed_outbound_hosts, is_service_chaining_host, parse_service_chaining_target,
@@ -40,6 +45,7 @@ impl OutboundNetworkingFactor {
     }
 }
 
+#[cfg(feature = "runtime")]
 impl Factor for OutboundNetworkingFactor {
     type RuntimeConfig = RuntimeConfig;
     type AppState = AppState;
@@ -141,6 +147,7 @@ impl Factor for OutboundNetworkingFactor {
     }
 }
 
+#[cfg(feature = "runtime")]
 pub struct AppState {
     component_allowed_hosts: HashMap<String, Arc<[String]>>,
     runtime_config: RuntimeConfig,
@@ -165,6 +172,7 @@ impl InstanceBuilder {
     }
 }
 
+#[cfg(feature = "runtime")]
 impl FactorInstanceBuilder for InstanceBuilder {
     type InstanceState = ();
 

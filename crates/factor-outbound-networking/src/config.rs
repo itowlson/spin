@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use anyhow::{bail, ensure, Context};
-use spin_factors::AppComponent;
+use spin_app::AppComponent;
 use spin_locked_app::MetadataKey;
 
 const ALLOWED_HOSTS_KEY: MetadataKey<Vec<String>> = MetadataKey::new("allowed_outbound_hosts");

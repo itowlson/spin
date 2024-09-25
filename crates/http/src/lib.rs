@@ -4,6 +4,7 @@ pub use wasmtime_wasi_http::body::HyperIncomingBody as Body;
 pub mod app_info;
 pub mod config;
 pub mod routes;
+#[cfg(feature = "runtime")]
 pub mod trigger;
 #[cfg(feature = "runtime")]
 pub mod wagi;

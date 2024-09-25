@@ -13,10 +13,11 @@ rustls = { workspace = true }
 rustls-pemfile = { version = "2", optional = true }
 rustls-pki-types = "1.8"
 serde = { workspace = true }
+spin-app = { path = "../app" }
 spin-expressions = { path = "../expressions" }
-spin-factor-variables = { path = "../factor-variables" }
-spin-factor-wasi = { path = "../factor-wasi" }
-spin-factors = { path = "../factors" }
+spin-factor-variables = { path = "../factor-variables", optional = true }
+spin-factor-wasi = { path = "../factor-wasi", optional = true }
+spin-factors = { path = "../factors", optional = true }
 spin-locked-app = { path = "../locked-app" }
 spin-manifest = { path = "../manifest" }
 spin-serde = { path = "../serde" }
@@ -34,10 +35,11 @@ toml = { workspace = true }
 wasmtime-wasi = { workspace = true }
 
 [features]
-default = ["spin-cli"]
+default = ["spin-cli", "runtime"]
 # Includes the runtime configuration handling used by the Spin CLI
 spin-cli = [
   "dep:rustls-pemfile",
 ]
+runtime = ["dep:spin-factor-wasi", "dep:spin-factor-variables", "dep:spin-factors"]
 [lints]
 workspace = true
