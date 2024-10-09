@@ -7752,6 +7752,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "spin-factor-blobstore"
+version = "3.1.0-pre0"
+dependencies = [
+ "anyhow",
+ "lru",
+ "serde",
+ "spin-core",
+ "spin-factors",
+ "spin-factors-test",
+ "spin-locked-app",
+ "spin-resource-table",
+ "spin-world",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "spin-factor-key-value"
 version = "3.1.0-pre0"
 dependencies = [
