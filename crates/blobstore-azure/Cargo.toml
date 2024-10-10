@@ -12,12 +12,14 @@ rust-version.workspace = true
 anyhow = { workspace = true }
 # azure_data_cosmos = { git = "https://github.com/azure/azure-sdk-for-rust.git", rev = "8c4caa251c3903d5eae848b41bb1d02a4d65231c" }
 # azure_identity = { git = "https://github.com/azure/azure-sdk-for-rust.git", rev = "8c4caa251c3903d5eae848b41bb1d02a4d65231c" }
+azure_core = "0.20.0"
 azure_storage = "0.20.0"
 azure_storage_blobs = "0.20.0"
 futures = { workspace = true }
 serde = { workspace = true }
 spin-core = { path = "../core" }
 spin-factor-blobstore = { path = "../factor-blobstore" }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use anyhow::Result;
 // use azure_data_cosmos::{
@@ -95,37 +96,79 @@ impl Container for AzureBlobContainer {
         Ok(self.client.exists().await?)
     }
 
-    // async fn get(&self, key: &str) -> Result<Option<Vec<u8>>, Error> {
-    //     let pair = self.get_pair(key).await?;
-    //     Ok(pair.map(|p| p.value))
-    // }
+    async fn name(&self) -> String {
+        self.client.container_name().to_owned()
+    }
 
-    // async fn set(&self, key: &str, value: &[u8]) -> Result<(), Error> {
-    //     let pair = Pair {
-    //         id: key.to_string(),
-    //         value: value.to_vec(),
-    //     };
-    //     self.client
-    //         .create_document(pair)
-    //         .is_upsert(true)
-    //         .await
-    //         .map_err(log_error)?;
-    //     Ok(())
-    // }
+    async fn clear(&self) -> anyhow::Result<()> {
+        anyhow::bail!("Azure blob storage does not support clearing containers")
+    }
 
-    // async fn delete(&self, key: &str) -> Result<(), Error> {
-    //     if self.exists(key).await? {
-    //         let document_client = self.client.document_client(key, &key).map_err(log_error)?;
-    //         document_client.delete_document().await.map_err(log_error)?;
-    //     }
-    //     Ok(())
-    // }
+    async fn delete_object(&self, name: &str) -> anyhow::Result<()> {
+        self.client.blob_client(name).delete().await?;
+        Ok(())
+    }
 
-    // async fn exists(&self, key: &str) -> Result<bool, Error> {
-    //     Ok(self.get_pair(key).await?.is_some())
-    // }
+    async fn delete_objects(&self, names: &[String]) -> anyhow::Result<()> {
+        // TODO: are atomic semantics required? or efficiency guarantees?
+        let futures = names.iter().map(|name| self.delete_object(name));
+        futures::future::try_join_all(futures).await?;
+        Ok(())
+    }
 
-    // async fn get_keys(&self) -> Result<Vec<String>, Error> {
-    //     self.get_keys().await
-    // }
+    async fn has_object(&self, name: &str) -> anyhow::Result<bool> {
+        Ok(self.client.blob_client(name).exists().await?)
+    }
+
+    async fn object_info(&self, name: &str) -> anyhow::Result<spin_factor_blobstore::ObjectMetadata> {
+        let response = self.client.blob_client(name).get_properties().await?;
+        Ok(spin_factor_blobstore::ObjectMetadata {
+            name: name.to_string(),
+            container: self.client.container_name().to_string(),
+            created_at: response.blob.properties.creation_time.unix_timestamp().try_into().unwrap(),
+            size: response.blob.properties.content_length,
+        })
+    }
+
+    async fn get_data(&self, name: &str, start: u64, end: u64) -> anyhow::Result<Box<dyn spin_factor_blobstore::IncomingData>> {
+        // We can't use a Rust range because the Azure type does not accept inclusive ranges,
+        // and we don't want to add 1 to `end` if it's already at MAX!
+        let range = if end == u64::MAX {
+            azure_core::request_options::Range::RangeFrom(start..)
+        } else {
+            azure_core::request_options::Range::Range(start..(end + 1))
+        };
+        let stm = self.client.blob_client(name).get().range(range).into_stream();
+        Ok(Box::new(AzureBlobIncomingData(Mutex::new(stm))))
+    }
+}
+
+struct AzureBlobIncomingData(
+    // The Mutex is used to make it Send
+    Mutex<
+        azure_core::Pageable<
+            azure_storage_blobs::blob::operations::GetBlobResponse,
+            azure_core::error::Error
+        >
+    >
+);
+
+#[async_trait]
+impl spin_factor_blobstore::IncomingData for AzureBlobIncomingData {
+    async fn consume_sync(&mut self) -> anyhow::Result<Vec<u8>> {
+        use futures::StreamExt;
+        let mut data = vec![];
+        let pageable = self.0.get_mut();
+
+        loop {
+            let Some(chunk) = pageable.next().await else {
+                break;
+            };
+            let chunk = chunk.unwrap();
+            let by = chunk.data.collect().await.unwrap();
+            data.extend(by.to_vec());
+        }
+
+        Ok(data)
+    }
 }

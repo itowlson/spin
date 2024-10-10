@@ -15,7 +15,8 @@ use spin_locked_app::MetadataKey;
 
 /// Metadata key for key-value stores.
 pub const BLOB_STORES_KEY: MetadataKey<Vec<String>> = MetadataKey::new("blob_containers");
-pub use host::{log_error, Error, BlobStoreDispatch, Container, ContainerManager};
+pub use spin_world::wasi::blobstore::types::ObjectMetadata;
+pub use host::{log_error, Error, BlobStoreDispatch, Container, ContainerManager, IncomingData};
 pub use runtime_config::RuntimeConfig;
 pub use util::DelegatingContainerManager;
 

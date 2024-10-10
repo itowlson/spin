@@ -7673,12 +7673,14 @@ name = "spin-blobstore-azure"
 version = "3.1.0-pre0"
 dependencies = [
  "anyhow",
+ "azure_core 0.20.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "azure_storage",
  "azure_storage_blobs",
  "futures",
  "serde",
  "spin-core",
  "spin-factor-blobstore",
+ "tokio",
 ]
 
 [[package]]
