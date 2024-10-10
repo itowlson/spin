@@ -1,17 +1,17 @@
 use crate::{Error, Container, ContainerManager};
-use lru::LruCache;
+// use lru::LruCache;
 use spin_core::async_trait;
 use std::{
-    collections::{HashMap, HashSet},
-    future::Future,
-    num::NonZeroUsize,
+    collections::HashMap,
+    // future::Future,
+    // num::NonZeroUsize,
     sync::Arc,
 };
-use tokio::{
-    sync::Mutex as AsyncMutex,
-    task::{self, JoinHandle},
-};
-use tracing::Instrument;
+// use tokio::{
+//     sync::Mutex as AsyncMutex,
+//     task::{self, JoinHandle},
+// };
+// use tracing::Instrument;
 
 /// A [`ContainerManager`] which delegates to other `ContainerManager`s based on the store label.
 pub struct DelegatingContainerManager {
@@ -46,36 +46,36 @@ impl ContainerManager for DelegatingContainerManager {
     }
 }
 
-/// Wrap each `Store` produced by the inner `StoreManager` in an asynchronous, write-behind cache.
-///
-/// This serves two purposes:
-///
-/// - Improve performance with slow and/or distant stores
-///
-/// - Provide a relaxed consistency guarantee vs. what a fully synchronous store provides
-///
-/// The latter is intended to prevent guests from coming to rely on the synchronous consistency model of an
-/// existing implementation which may later be replaced with one providing a more relaxed, asynchronous
-/// (i.e. "eventual") consistency model.  See also https://www.hyrumslaw.com/ and https://xkcd.com/1172/.
-///
-/// This implementation provides a "read-your-writes", asynchronous consistency model such that values are
-/// immediately available for reading as soon as they are written as long as the read(s) hit the same cache as the
-/// write(s).  Reads and writes through separate caches (e.g. separate guest instances or separately-opened
-/// references to the same store within a single instance) are _not_ guaranteed to be consistent; not only is
-/// cross-cache consistency subject to scheduling and/or networking delays, a given tuple is never refreshed from
-/// the backing store once added to a cache since this implementation is intended for use only by short-lived guest
-/// instances.
-///
-/// Note that, because writes are asynchronous and return immediately, durability is _not_ guaranteed.  I/O errors
-/// may occur asynchronously after the write operation has returned control to the guest, which may result in the
-/// write being lost without the guest knowing.  In the future, a separate `write-durable` function could be added
-/// to key-value.wit to provide either synchronous or asynchronous feedback on durability for guests which need it.
-pub struct CachingStoreManager<T> {
-    capacity: NonZeroUsize,
-    inner: T,
-}
+// /// Wrap each `Store` produced by the inner `StoreManager` in an asynchronous, write-behind cache.
+// ///
+// /// This serves two purposes:
+// ///
+// /// - Improve performance with slow and/or distant stores
+// ///
+// /// - Provide a relaxed consistency guarantee vs. what a fully synchronous store provides
+// ///
+// /// The latter is intended to prevent guests from coming to rely on the synchronous consistency model of an
+// /// existing implementation which may later be replaced with one providing a more relaxed, asynchronous
+// /// (i.e. "eventual") consistency model.  See also https://www.hyrumslaw.com/ and https://xkcd.com/1172/.
+// ///
+// /// This implementation provides a "read-your-writes", asynchronous consistency model such that values are
+// /// immediately available for reading as soon as they are written as long as the read(s) hit the same cache as the
+// /// write(s).  Reads and writes through separate caches (e.g. separate guest instances or separately-opened
+// /// references to the same store within a single instance) are _not_ guaranteed to be consistent; not only is
+// /// cross-cache consistency subject to scheduling and/or networking delays, a given tuple is never refreshed from
+// /// the backing store once added to a cache since this implementation is intended for use only by short-lived guest
+// /// instances.
+// ///
+// /// Note that, because writes are asynchronous and return immediately, durability is _not_ guaranteed.  I/O errors
+// /// may occur asynchronously after the write operation has returned control to the guest, which may result in the
+// /// write being lost without the guest knowing.  In the future, a separate `write-durable` function could be added
+// /// to key-value.wit to provide either synchronous or asynchronous feedback on durability for guests which need it.
+// pub struct CachingStoreManager<T> {
+//     capacity: NonZeroUsize,
+//     inner: T,
+// }
 
-const DEFAULT_CACHE_SIZE: usize = 256;
+// const DEFAULT_CACHE_SIZE: usize = 256;
 
 // impl<T> CachingStoreManager<T> {
 //     pub fn new(inner: T) -> Self {
