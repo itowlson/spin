@@ -33,6 +33,13 @@ pub trait Container: Sync + Send {
     async fn has_object(&self, name: &str) -> anyhow::Result<bool>;
     async fn object_info(&self, name: &str) -> anyhow::Result<blobstore::types::ObjectMetadata>;
     async fn get_data(&self, name: &str, start: u64, end: u64) -> anyhow::Result<Box<dyn IncomingData>>;
+    async fn list_objects(&self) -> anyhow::Result<Box<dyn ObjectNames>>;
+}
+
+#[async_trait]
+pub trait ObjectNames : Send + Sync {
+    async fn read(&mut self, len: u64) -> anyhow::Result<(Vec<String>, bool)>;
+    async fn skip(&mut self, num: u64) -> anyhow::Result<(u64,bool)>;
 }
 
 #[async_trait]
@@ -45,6 +52,7 @@ pub struct BlobStoreDispatch {
     manager: Arc<dyn ContainerManager>,
     containers: Table<Arc<dyn Container>>,
     incoming_values: Table<Box<dyn IncomingData>>,
+    object_names: Table<Box<dyn ObjectNames>>,
 }
 
 impl BlobStoreDispatch {
@@ -62,6 +70,7 @@ impl BlobStoreDispatch {
             manager,
             containers: Table::new(capacity),
             incoming_values: Table::new(capacity),
+            object_names: Table::new(capacity),
         }
     }
 
@@ -76,6 +85,12 @@ impl BlobStoreDispatch {
     fn container(&self, resource: Resource<blobstore::container::Container>) -> Result<&Arc<dyn Container>, String> {
         self.containers.get(resource.rep()).ok_or_else(||
             "invalid container resource".to_string()
+        )
+    }
+
+    fn object_names(&mut self, resource: Resource<blobstore::container::StreamObjectNames>) -> Result<&mut Box<dyn ObjectNames>, String> {
+        self.object_names.get_mut(resource.rep()).ok_or_else(||
+            "invalid stream-object-names resource".to_string()
         )
     }
 
@@ -197,7 +212,10 @@ impl blobstore::container::HostContainer for BlobStoreDispatch {
     }
 
     async fn list_objects(&mut self, self_: Resource<blobstore::container::Container>) -> Result<Resource<blobstore::container::StreamObjectNames>, String> {
-        todo!()
+        let container = self.container(self_)?;
+        let names = container.list_objects().await.map_err(|e| e.to_string())?;
+        let rep = self.object_names.push(names).unwrap();
+        Ok(Resource::new_own(rep))
     }
 
     async fn delete_object(&mut self, self_: Resource<blobstore::container::Container>, name: String) -> Result<(), String> {
@@ -234,91 +252,20 @@ impl blobstore::container::HostContainer for BlobStoreDispatch {
 #[async_trait]
 impl blobstore::container::HostStreamObjectNames for BlobStoreDispatch {
     async fn read_stream_object_names(&mut self, self_: Resource<blobstore::container::StreamObjectNames>, len: u64) -> Result<(Vec<String>,bool), String> {
-        todo!()
+        let object_names = self.object_names(self_)?;
+        object_names.as_mut().read(len).await.map_err(|e| e.to_string())
     }
 
     async fn skip_stream_object_names(&mut self, self_: Resource<blobstore::container::StreamObjectNames>, num: u64) -> Result<(u64,bool), String> {
-        todo!()
+        let object_names = self.object_names(self_)?;
+        object_names.as_mut().skip(num).await.map_err(|e| e.to_string())
     }
 
     async fn drop(&mut self, rep: Resource<blobstore::container::StreamObjectNames>) -> anyhow::Result<()> {
-        todo!()
+        self.object_names.remove(rep.rep());
+        Ok(())
     }
 }
-
-// #[async_trait]
-// impl blobstore::HostStore for BlobStoreDispatch {
-//     // #[instrument(name = "spin_blobstore.open", skip(self), err(level = Level::INFO), fields(otel.kind = "client", kv.backend=self.manager.summary(&name).unwrap_or("unknown".to_string())))]
-//     // async fn open(&mut self, name: String) -> Result<Result<Resource<blobstore::blobstore::Container>, Error>> {
-//     //     Ok(async {
-//     //         if self.allowed_stores.contains(&name) {
-//     //             let store = self
-//     //                 .stores
-//     //                 .push(self.manager.get(&name).await?)
-//     //                 .map_err(|()| Error::StoreTableFull)?;
-//     //             Ok(Resource::new_own(store))
-//     //         } else {
-//     //             Err(Error::AccessDenied)
-//     //         }
-//     //     }
-//     //     .await)
-//     // }
-
-//     // #[instrument(name = "spin_key_value.get", skip(self, store, key), err(level = Level::INFO), fields(otel.kind = "client"))]
-//     // async fn get(
-//     //     &mut self,
-//     //     store: Resource<blobstore::blobstore::Container>,
-//     //     key: String,
-//     // ) -> Result<Result<Option<Vec<u8>>, Error>> {
-//     //     let store = self.get_store(store)?;
-//     //     Ok(store.get(&key).await)
-//     // }
-
-//     // #[instrument(name = "spin_key_value.set", skip(self, store, key, value), err(level = Level::INFO), fields(otel.kind = "client"))]
-//     // async fn set(
-//     //     &mut self,
-//     //     store: Resource<key_value::Store>,
-//     //     key: String,
-//     //     value: Vec<u8>,
-//     // ) -> Result<Result<(), Error>> {
-//     //     let store = self.get_store(store)?;
-//     //     Ok(store.set(&key, &value).await)
-//     // }
-
-//     // #[instrument(name = "spin_key_value.delete", skip(self, store, key), err(level = Level::INFO), fields(otel.kind = "client"))]
-//     // async fn delete(
-//     //     &mut self,
-//     //     store: Resource<key_value::Store>,
-//     //     key: String,
-//     // ) -> Result<Result<(), Error>> {
-//     //     let store = self.get_store(store)?;
-//     //     Ok(store.delete(&key).await)
-//     // }
-
-//     // #[instrument(name = "spin_key_value.exists", skip(self, store, key), err(level = Level::INFO), fields(otel.kind = "client"))]
-//     // async fn exists(
-//     //     &mut self,
-//     //     store: Resource<key_value::Store>,
-//     //     key: String,
-//     // ) -> Result<Result<bool, Error>> {
-//     //     let store = self.get_store(store)?;
-//     //     Ok(store.exists(&key).await)
-//     // }
-
-//     // #[instrument(name = "spin_key_value.get_keys", skip(self, store), err(level = Level::INFO), fields(otel.kind = "client"))]
-//     // async fn get_keys(
-//     //     &mut self,
-//     //     store: Resource<key_value::Store>,
-//     // ) -> Result<Result<Vec<String>, Error>> {
-//     //     let store = self.get_store(store)?;
-//     //     Ok(store.get_keys().await)
-//     // }
-
-//     async fn drop(&mut self, store: Resource<blobstore::blobstore::Container>) -> Result<()> {
-//         self.stores.remove(store.rep());
-//         Ok(())
-//     }
-// }
 
 pub fn log_error(err: impl std::fmt::Debug) -> String {
     tracing::warn!("blobstore error: {err:?}");
