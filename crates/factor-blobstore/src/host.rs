@@ -46,14 +46,19 @@ pub trait ObjectNames : Send + Sync {
 #[async_trait]
 pub trait IncomingData : Send + Sync {
     async fn consume_sync(&mut self) -> anyhow::Result<Vec<u8>>;
+    fn consume_async(&mut self) -> wasmtime_wasi::pipe::AsyncReadStream;
     async fn size(&mut self) -> anyhow::Result<u64>;
 }
+
+struct OutgoingValue;
 
 pub struct BlobStoreDispatch {
     allowed_containers: HashSet<String>,
     manager: Arc<dyn ContainerManager>,
     containers: Table<Arc<dyn Container>>,
     incoming_values: Table<Box<dyn IncomingData>>,
+    input_streams: Table<wasmtime_wasi::pipe::AsyncReadStream>,
+    outgoing_values: Table<OutgoingValue>,
     object_names: Table<Box<dyn ObjectNames>>,
 }
 
@@ -72,6 +77,8 @@ impl BlobStoreDispatch {
             manager,
             containers: Table::new(capacity),
             incoming_values: Table::new(capacity),
+            input_streams: Table::new(capacity),
+            outgoing_values: Table::new(capacity),
             object_names: Table::new(capacity),
         }
     }
@@ -162,7 +169,10 @@ impl blobstore::types::HostIncomingValue for BlobStoreDispatch {
     }
 
     async fn incoming_value_consume_async(&mut self, self_: Resource<blobstore::types::IncomingValue>) -> Result<Resource<blobstore::types::InputStream>, String> {
-        todo!()
+        let mut incoming = self.take_incoming_value(self_)?;
+        let async_body = incoming.as_mut().consume_async();
+        let rep = self.input_streams.push(async_body).unwrap();
+        Ok(Resource::new_own(rep))
     }
 
     async fn size(&mut self, self_: Resource<blobstore::types::IncomingValue>) -> anyhow::Result<u64> {
@@ -179,7 +189,9 @@ impl blobstore::types::HostIncomingValue for BlobStoreDispatch {
 #[async_trait]
 impl blobstore::types::HostOutgoingValue for BlobStoreDispatch {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<blobstore::types::OutgoingValue>> {
-        todo!()
+        let outgoing_value = OutgoingValue;
+        let rep = self.outgoing_values.push(outgoing_value).unwrap();
+        Ok(Resource::new_own(rep))
     }
 
     async fn outgoing_value_write_body(&mut self, self_: Resource<blobstore::types::OutgoingValue>) -> anyhow::Result<Result<Resource<blobstore::types::OutputStream>, ()>> {
@@ -191,7 +203,8 @@ impl blobstore::types::HostOutgoingValue for BlobStoreDispatch {
     }
 
     async fn drop(&mut self, rep: Resource<blobstore::types::OutgoingValue>) -> anyhow::Result<()> {
-        todo!()
+        self.outgoing_values.remove(rep.rep());
+        Ok(())
     }
 }
 

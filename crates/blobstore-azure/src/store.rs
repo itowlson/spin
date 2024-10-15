@@ -161,12 +161,12 @@ impl Container for AzureBlobContainer {
 
 struct AzureBlobIncomingData {
     // The Mutex is used to make it Send
-    stm: Mutex<
+    stm: Mutex<Option<
         azure_core::Pageable<
             azure_storage_blobs::blob::operations::GetBlobResponse,
             azure_core::error::Error
         >
-    >,
+    >>,
     client: azure_storage_blobs::prelude::BlobClient,
 }
 
@@ -174,11 +174,37 @@ impl AzureBlobIncomingData {
     fn new(client: azure_storage_blobs::prelude::BlobClient, range: azure_core::request_options::Range) -> Self {
         let stm = client.get().range(range).into_stream();
         Self {
-            stm: Mutex::new(stm),
+            stm: Mutex::new(Some(stm)),
             client,
         }
     }
+
+    fn consume_async_impl(&mut self) -> wasmtime_wasi::pipe::AsyncReadStream { // Box<dyn futures::stream::Stream<Item = Result<Vec<u8>, std::io::Error>>> {
+        use futures::TryStreamExt;
+        use tokio_util::compat::FuturesAsyncReadCompatExt;
+        let stm = self.consume_as_stream();
+        let ar = stm.into_async_read();
+        let arr = ar.compat();
+        wasmtime_wasi::pipe::AsyncReadStream::new(arr)
+        // Box::new(stm)
+        // let async_read = stm.into_async_read();
+        // todo!()
+    }
+
+    fn consume_as_stream(&mut self) -> impl futures::stream::Stream<Item = Result<Vec<u8>, std::io::Error>> {
+        use futures::StreamExt;
+        let opt_stm = self.stm.get_mut();
+        let stm = opt_stm.take().unwrap();
+        let byte_stm = stm.flat_map(|chunk| streamify_chunk(chunk.unwrap().data));
+        byte_stm
+    }
 }
+
+fn streamify_chunk(chunk: azure_core::ResponseBody) -> impl futures::stream::Stream<Item = Result<Vec<u8>, std::io::Error>> {
+    use futures::StreamExt;
+    chunk.map(|c| Ok(c.unwrap().to_vec()))
+}
+
 
 struct AzureBlobBlobsList {
     // The Mutex is used to make it Send
@@ -256,7 +282,9 @@ impl spin_factor_blobstore::IncomingData for AzureBlobIncomingData {
     async fn consume_sync(&mut self) -> anyhow::Result<Vec<u8>> {
         use futures::StreamExt;
         let mut data = vec![];
-        let pageable = self.stm.get_mut();
+        let Some(pageable) = self.stm.get_mut() else {
+            anyhow::bail!("oh no");
+        };
 
         loop {
             let Some(chunk) = pageable.next().await else {
@@ -268,6 +296,10 @@ impl spin_factor_blobstore::IncomingData for AzureBlobIncomingData {
         }
 
         Ok(data)
+    }
+
+    fn consume_async(&mut self) -> wasmtime_wasi::pipe::AsyncReadStream { // Box<dyn futures::stream::Stream<Item = Result<Vec<u8>, std::io::Error>>> {
+        self.consume_async_impl()
     }
 
     async fn size(&mut self) -> anyhow::Result<u64> {

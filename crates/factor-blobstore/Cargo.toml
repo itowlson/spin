@@ -6,6 +6,7 @@ edition = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
+futures = { workspace = true }
 lru = "0.12"
 serde = { workspace = true }
 spin-core = { path = "../core" }
@@ -16,6 +17,7 @@ spin-world = { path = "../world" }
 tokio = { workspace = true, features = ["macros", "sync", "rt"] }
 toml = { workspace = true }
 tracing = { workspace = true }
+wasmtime-wasi = { workspace = true }
 
 [dev-dependencies]
 spin-factors-test = { path = "../factors-test" }
