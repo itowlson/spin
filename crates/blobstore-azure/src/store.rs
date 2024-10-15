@@ -90,6 +90,9 @@ struct AzureBlobContainer {
     client: ContainerClient,
 }
 
+/// Azure doesn't provide us with a container creation time
+const DUMMY_CREATED_AT: u64 = 0;
+
 #[async_trait]
 impl Container for AzureBlobContainer {
     async fn exists(&self) -> anyhow::Result<bool> {
@@ -98,6 +101,14 @@ impl Container for AzureBlobContainer {
 
     async fn name(&self) -> String {
         self.client.container_name().to_owned()
+    }
+
+    async fn info(&self) -> anyhow::Result<spin_factor_blobstore::ContainerMetadata> {
+        let properties = self.client.get_properties().await?;
+        Ok(spin_factor_blobstore::ContainerMetadata {
+            name: properties.container.name,
+            created_at: DUMMY_CREATED_AT,
+        })
     }
 
     async fn clear(&self) -> anyhow::Result<()> {
@@ -138,8 +149,8 @@ impl Container for AzureBlobContainer {
         } else {
             azure_core::request_options::Range::Range(start..(end + 1))
         };
-        let stm = self.client.blob_client(name).get().range(range).into_stream();
-        Ok(Box::new(AzureBlobIncomingData(Mutex::new(stm))))
+        let client = self.client.blob_client(name);
+        Ok(Box::new(AzureBlobIncomingData::new(client, range)))
     }
 
     async fn list_objects(&self) -> anyhow::Result<Box<dyn spin_factor_blobstore::ObjectNames>> {
@@ -148,26 +159,26 @@ impl Container for AzureBlobContainer {
     }
 }
 
-struct AzureBlobIncomingData(
+struct AzureBlobIncomingData {
     // The Mutex is used to make it Send
-    Mutex<
+    stm: Mutex<
         azure_core::Pageable<
             azure_storage_blobs::blob::operations::GetBlobResponse,
             azure_core::error::Error
         >
-    >
-);
+    >,
+    client: azure_storage_blobs::prelude::BlobClient,
+}
 
-
-// struct AzureBlobBlobsList(
-//     // The Mutex is used to make it Send
-//     Mutex<
-//         azure_core::Pageable<
-//             azure_storage_blobs::container::operations::ListBlobsResponse,
-//             azure_core::error::Error
-//         >
-//     >
-// );
+impl AzureBlobIncomingData {
+    fn new(client: azure_storage_blobs::prelude::BlobClient, range: azure_core::request_options::Range) -> Self {
+        let stm = client.get().range(range).into_stream();
+        Self {
+            stm: Mutex::new(stm),
+            client,
+        }
+    }
+}
 
 struct AzureBlobBlobsList {
     // The Mutex is used to make it Send
@@ -245,7 +256,7 @@ impl spin_factor_blobstore::IncomingData for AzureBlobIncomingData {
     async fn consume_sync(&mut self) -> anyhow::Result<Vec<u8>> {
         use futures::StreamExt;
         let mut data = vec![];
-        let pageable = self.0.get_mut();
+        let pageable = self.stm.get_mut();
 
         loop {
             let Some(chunk) = pageable.next().await else {
@@ -257,6 +268,15 @@ impl spin_factor_blobstore::IncomingData for AzureBlobIncomingData {
         }
 
         Ok(data)
+    }
+
+    async fn size(&mut self) -> anyhow::Result<u64> {
+        // TODO: in theory this should be infallible once we have the IncomingData
+        // object. But in practice if we use the Pageable for that we don't get it until
+        // we do the first read. So that would force us to either pre-fetch the
+        // first chunk or to issue a properties request *just in case* size() was
+        // called. So I'm making it fallible for now.
+        Ok(self.client.get_properties().await?.blob.properties.content_length)
     }
 }
 

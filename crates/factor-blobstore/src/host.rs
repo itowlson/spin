@@ -27,6 +27,7 @@ pub trait ContainerManager: Sync + Send {
 pub trait Container: Sync + Send {
     async fn exists(&self) -> anyhow::Result<bool>;
     async fn name(&self) -> String;
+    async fn info(&self) -> anyhow::Result<blobstore::types::ContainerMetadata>;
     async fn clear(&self) -> anyhow::Result<()>;
     async fn delete_object(&self, name: &str) -> anyhow::Result<()>;
     async fn delete_objects(&self, names: &[String]) -> anyhow::Result<()>;
@@ -45,6 +46,7 @@ pub trait ObjectNames : Send + Sync {
 #[async_trait]
 pub trait IncomingData : Send + Sync {
     async fn consume_sync(&mut self) -> anyhow::Result<Vec<u8>>;
+    async fn size(&mut self) -> anyhow::Result<u64>;
 }
 
 pub struct BlobStoreDispatch {
@@ -91,6 +93,12 @@ impl BlobStoreDispatch {
     fn object_names(&mut self, resource: Resource<blobstore::container::StreamObjectNames>) -> Result<&mut Box<dyn ObjectNames>, String> {
         self.object_names.get_mut(resource.rep()).ok_or_else(||
             "invalid stream-object-names resource".to_string()
+        )
+    }
+
+    fn incoming_value(&mut self, resource: Resource<blobstore::container::IncomingValue>) -> Result<&mut Box<dyn IncomingData>, String> {
+        self.incoming_values.get_mut(resource.rep()).ok_or_else(||
+            "invalid incoming-value resource".to_string()
         )
     }
 
@@ -158,11 +166,13 @@ impl blobstore::types::HostIncomingValue for BlobStoreDispatch {
     }
 
     async fn size(&mut self, self_: Resource<blobstore::types::IncomingValue>) -> anyhow::Result<u64> {
-        todo!()
+        let incoming = self.incoming_value(self_).map_err(|s| anyhow::anyhow!("{s}"))?;
+        incoming.size().await
     }
 
     async fn drop(&mut self, rep: Resource<blobstore::types::IncomingValue>) -> anyhow::Result<()> {
-        todo!()
+        self.incoming_values.remove(rep.rep());
+        Ok(())
     }
 }
 
@@ -197,7 +207,8 @@ impl blobstore::container::HostContainer for BlobStoreDispatch {
     }
 
     async fn info(&mut self, self_: Resource<blobstore::container::Container>) -> Result<blobstore::container::ContainerMetadata, String> {
-        todo!()
+        let container = self.container(self_)?;
+        container.info().await.map_err(|e| e.to_string())
     }
 
     async fn get_data(&mut self, self_: Resource<blobstore::container::Container>, name: blobstore::container::ObjectName, start: u64, end: u64) -> Result<Resource<blobstore::types::IncomingValue>, String> {
