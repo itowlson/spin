@@ -8394,6 +8394,7 @@ version = "3.1.0-pre0"
 dependencies = [
  "anyhow",
  "spin-common",
+ "spin-factor-blobstore",
  "spin-factor-key-value",
  "spin-factor-llm",
  "spin-factor-outbound-http",
@@ -8427,6 +8428,7 @@ dependencies = [
  "anyhow",
  "clap 3.2.25",
  "spin-common",
+ "spin-factor-blobstore",
  "spin-factor-key-value",
  "spin-factor-llm",
  "spin-factor-outbound-http",

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use spin_common::ui::quoted_path;
+use spin_factor_blobstore::BlobStoreFactor;
 use spin_factor_key_value::runtime_config::spin::{self as key_value};
 use spin_factor_key_value::KeyValueFactor;
 use spin_factor_llm::{spin as llm, LlmFactor};
@@ -365,6 +366,13 @@ impl FactorRuntimeConfigSource<OutboundMqttFactor> for TomlRuntimeConfigSource<'
 impl FactorRuntimeConfigSource<SqliteFactor> for TomlRuntimeConfigSource<'_, '_> {
     fn get_runtime_config(&mut self) -> anyhow::Result<Option<spin_factor_sqlite::RuntimeConfig>> {
         Ok(Some(self.sqlite.resolve(&self.toml.table)?))
+    }
+}
+
+impl FactorRuntimeConfigSource<BlobStoreFactor> for TomlRuntimeConfigSource<'_, '_> {
+    fn get_runtime_config(&mut self) -> anyhow::Result<Option<spin_factor_blobstore::RuntimeConfig>> {
+        // TODO: actually
+        Ok(Some(spin_factor_blobstore::RuntimeConfig::default()))
     }
 }
 
