@@ -7688,11 +7688,11 @@ dependencies = [
 
 [[package]]
 name = "spin-blobstore-memory"
-version = "2.8.0-pre0"
+version = "3.1.0-pre0"
 dependencies = [
  "anyhow",
  "futures",
- "serde 1.0.210",
+ "serde",
  "spin-core",
  "spin-factor-blobstore",
  "tokio",

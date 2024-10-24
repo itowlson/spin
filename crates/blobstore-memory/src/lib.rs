@@ -112,7 +112,13 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         Ok(self.read().await.contains_key(name))
     }
     async fn object_info(&self, name: &str) -> anyhow::Result<spin_factor_blobstore::ObjectMetadata> {
-        todo!()
+        let size = self.blobs.read().await.get(name).ok_or_else(|| anyhow::anyhow!("blob not found"))?.len();
+        Ok(spin_factor_blobstore::ObjectMetadata {
+            name: name.to_string(),
+            container: self.name.to_string(),
+            created_at: 0,
+            size: size.try_into().unwrap(),
+        })
     }
     async fn get_data(&self, name: &str, start: u64, end: u64) -> anyhow::Result<Box<dyn spin_factor_blobstore::IncomingData>> {
         let data = self.read().await.get(name).ok_or_else(|| anyhow::anyhow!("blob not found"))?.clone();
@@ -129,7 +135,9 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         Ok(Box::new(InMemoryBlobContent { data }))
     }
     async fn list_objects(&self) -> anyhow::Result<Box<dyn spin_factor_blobstore::ObjectNames>> {
-        todo!()
+        let blobs = self.read().await;
+        let names = blobs.keys().map(|k| k.to_string()).collect();
+        Ok(Box::new(InMemoryBlobNames { names }))
     }
 }
 
@@ -153,5 +161,33 @@ impl spin_factor_blobstore::IncomingData for InMemoryBlobContent {
 
     async fn size(&mut self) -> anyhow::Result<u64> {
         Ok(self.data.len().try_into()?)
+    }
+}
+
+struct InMemoryBlobNames {
+    names: Vec<String>,
+}
+
+#[async_trait]
+impl spin_factor_blobstore::ObjectNames for InMemoryBlobNames {
+    async fn read(&mut self, len: u64) -> anyhow::Result<(Vec<String>, bool)> {
+        let len = len.try_into().unwrap();
+        if len > self.names.len() {
+            Ok((self.names.drain(..).collect(), false))
+        } else {
+            let taken = self.names.drain(0..len).collect();
+            Ok((taken, !self.names.is_empty()))
+        }
+    }
+
+    async fn skip(&mut self, num: u64) -> anyhow::Result<(u64,bool)> {
+        let len = num.try_into().unwrap();
+        let (count, more) = if len > self.names.len() {
+            (self.names.drain(..).len(), false)
+        } else {
+            let taken = self.names.drain(0..len).len();
+            (taken, !self.names.is_empty())
+        };
+        Ok((count.try_into().unwrap(), more))
     }
 }
