@@ -1,5 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
+use serde::{Deserialize, Serialize};
+
 use spin_core::async_trait;
 use spin_factor_blobstore::runtime_config::spin::MakeBlobStore;
 use tokio::sync::RwLock;
@@ -20,7 +22,7 @@ impl MemoryBlobStore {
 impl MakeBlobStore for MemoryBlobStore {
     const RUNTIME_CONFIG_TYPE: &'static str = "in_memory";
 
-    type RuntimeConfig = ();
+    type RuntimeConfig = MemoryBlobStoreRuntimeConfig;
 
     type ContainerManager = BlobStoreInMemory;
 
@@ -42,6 +44,12 @@ impl BlobStoreInMemory {
             containers: Default::default(),
         }
     }
+}
+
+/// The serialized runtime configuration for the in memory blob store.
+#[derive(Deserialize, Serialize)]
+pub struct MemoryBlobStoreRuntimeConfig {
+    ignored: Option<String>,
 }
 
 #[async_trait]

@@ -7900,6 +7900,7 @@ dependencies = [
  "lru",
  "serde",
  "spin-core",
+ "spin-factor-wasi",
  "spin-factors",
  "spin-factors-test",
  "spin-locked-app",
@@ -8393,6 +8394,8 @@ name = "spin-runtime-config"
 version = "3.1.0-pre0"
 dependencies = [
  "anyhow",
+ "spin-blobstore-azure",
+ "spin-blobstore-memory",
  "spin-common",
  "spin-factor-blobstore",
  "spin-factor-key-value",

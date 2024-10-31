@@ -40,7 +40,8 @@ impl Factor for BlobStoreFactor {
 
     fn init<T: Send + 'static>(&mut self, mut ctx: InitContext<T, Self>) -> anyhow::Result<()> {
         ctx.link_bindings(spin_world::wasi::blobstore::blobstore::add_to_linker)?;
-        println!("*** LINKED BLOBSTORE");
+        ctx.link_bindings(spin_world::wasi::blobstore::container::add_to_linker)?;
+        ctx.link_bindings(spin_world::wasi::blobstore::types::add_to_linker)?;
         Ok(())
     }
 
@@ -73,7 +74,6 @@ impl Factor for BlobStoreFactor {
             component_allowed_stores.insert(component_id, containers);
             // TODO: warn (?) on unused store?
         }
-        println!("*** CONFIGGED BLOBSTORE");
 
         Ok(AppState {
             container_manager: store_manager,
@@ -83,16 +83,14 @@ impl Factor for BlobStoreFactor {
 
     fn prepare<T: RuntimeFactors>(
         &self,
-        ctx: PrepareContext<T, Self>,
+        mut ctx: PrepareContext<T, Self>,
     ) -> anyhow::Result<InstanceBuilder> {
-        println!("*** PREPPING BLOBSTORE");
         let app_state = ctx.app_state();
         let allowed_stores = app_state
             .component_allowed_stores
             .get(ctx.app_component().id())
             .expect("component should be in component_stores")
             .clone();
-        println!("*** PREPPED BLOBSTORE");
         Ok(InstanceBuilder {
             store_manager: app_state.container_manager.clone(),
             allowed_stores,

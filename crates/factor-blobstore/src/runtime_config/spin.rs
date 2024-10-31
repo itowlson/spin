@@ -30,10 +30,10 @@ fn store_from_toml_fn<T: MakeBlobStore>(provider_type: T) -> StoreFromToml {
     Arc::new(move |table| {
         let runtime_config: T::RuntimeConfig = table
             .try_into()
-            .context("could not parse key-value runtime config")?;
+            .context("could not parse blobstore runtime config")?;
         let provider = provider_type
             .make_store(runtime_config)
-            .context("could not make key-value store from runtime config")?;
+            .context("could not make blobstore from runtime config")?;
         Ok(Arc::new(provider))
     })
 }
@@ -108,7 +108,7 @@ impl RuntimeConfigResolver {
                 let store_manager = self
                     .store_manager_from_config(config.clone())
                     .with_context(|| {
-                        format!("could not configure key-value store with label '{label}'")
+                        format!("could not configure blob store with label '{label}'")
                     })?;
                 runtime_config.add_container_manager(label.to_owned(), store_manager);
             }
@@ -120,7 +120,7 @@ impl RuntimeConfigResolver {
         &self,
         table: Option<&impl GetTomlValue>,
     ) -> anyhow::Result<Option<RuntimeConfig>> {
-        let Some(table) = table.and_then(|t| t.get("key_value_store")) else {
+        let Some(table) = table.and_then(|t| t.get("blob_store")) else {
             return Ok(None);
         };
         let table: HashMap<String, StoreConfig> = table.clone().try_into()?;
@@ -128,7 +128,7 @@ impl RuntimeConfigResolver {
         let mut runtime_config = RuntimeConfig::default();
         for (label, config) in table {
             let store_manager = self.store_manager_from_config(config).with_context(|| {
-                format!("could not configure key-value store with label '{label}'")
+                format!("could not configure blob store with label '{label}'")
             })?;
             runtime_config.add_container_manager(label.clone(), store_manager);
         }
