@@ -8647,6 +8647,7 @@ version = "3.1.0-pre0"
 dependencies = [
  "async-trait",
  "wasmtime",
+ "wasmtime-wasi",
 ]
 
 [[package]]

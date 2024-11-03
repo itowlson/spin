@@ -37,6 +37,9 @@ wasmtime::component::bindgen!({
         "wasi:blobstore/types@0.2.0-draft-2024-09-01/error" => wasi::blobstore::types::Error,
     },
     trappable_imports: true,
+    with: {
+        "wasi:io": wasmtime_wasi::bindings::io,
+    },
 });
 
 pub use fermyon::spin as v1;

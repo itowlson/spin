@@ -12,12 +12,14 @@ use spin_factors::{
     ConfigureAppContext, Factor, FactorInstanceBuilder, InitContext, PrepareContext, RuntimeFactors,
 };
 use spin_locked_app::MetadataKey;
+use spin_resource_table::Table;
 
 /// Metadata key for key-value stores.
 pub const BLOB_STORES_KEY: MetadataKey<Vec<String>> = MetadataKey::new("blob_containers");
 pub use spin_world::wasi::blobstore::types::{ContainerMetadata, ObjectMetadata};
 pub use host::{log_error, Error, BlobStoreDispatch, Container, ContainerManager, IncomingData, ObjectNames};
 pub use runtime_config::RuntimeConfig;
+use tokio::sync::RwLock;
 pub use util::DelegatingContainerManager;
 
 /// A factor that provides key-value storage.
@@ -39,9 +41,36 @@ impl Factor for BlobStoreFactor {
     type InstanceBuilder = InstanceBuilder;
 
     fn init<T: Send + 'static>(&mut self, mut ctx: InitContext<T, Self>) -> anyhow::Result<()> {
-        ctx.link_bindings(spin_world::wasi::blobstore::blobstore::add_to_linker)?;
-        ctx.link_bindings(spin_world::wasi::blobstore::container::add_to_linker)?;
-        ctx.link_bindings(spin_world::wasi::blobstore::types::add_to_linker)?;
+        fn type_annotate<T, F>(f: F) -> F
+        where
+            F: Fn(&mut T) -> BlobStoreDispatch,
+        {
+            f
+        }
+
+        let get_data_with_table = ctx.get_data_with_table_fn();
+        let closure = type_annotate(move |data| {
+            let (state, table) = get_data_with_table(data);
+            let wasi = wasmtime_wasi::WasiImpl(host::WasiImplInner { ctx: &mut state.ctx, table });
+            BlobStoreDispatch::new(
+                state.allowed_stores.clone(),
+                state.store_manager.clone(),
+                wasi,
+                state.containers.clone(),
+                state.incoming_values.clone(),
+                state.outgoing_values.clone(),
+                state.object_names.clone(),
+            )
+        });
+        let linker = ctx.linker();
+
+        spin_world::wasi::blobstore::blobstore::add_to_linker_get_host(linker, closure)?;
+        spin_world::wasi::blobstore::container::add_to_linker_get_host(linker, closure)?;
+        spin_world::wasi::blobstore::types::add_to_linker_get_host(linker, closure)?;
+
+        // ctx.link_bindings(spin_world::wasi::blobstore::blobstore::add_to_linker)?;
+        // ctx.link_bindings(spin_world::wasi::blobstore::container::add_to_linker)?;
+        // ctx.link_bindings(spin_world::wasi::blobstore::types::add_to_linker)?;
         Ok(())
     }
 
@@ -83,17 +112,25 @@ impl Factor for BlobStoreFactor {
 
     fn prepare<T: RuntimeFactors>(
         &self,
-        mut ctx: PrepareContext<T, Self>,
+        ctx: PrepareContext<T, Self>,
     ) -> anyhow::Result<InstanceBuilder> {
+        let mut wasi_ctx = wasmtime_wasi::WasiCtxBuilder::new();
+
         let app_state = ctx.app_state();
         let allowed_stores = app_state
             .component_allowed_stores
             .get(ctx.app_component().id())
             .expect("component should be in component_stores")
             .clone();
+        let capacity = u32::MAX;
         Ok(InstanceBuilder {
             store_manager: app_state.container_manager.clone(),
             allowed_stores,
+            ctx: wasi_ctx.build(),
+            containers: Arc::new(RwLock::new(Table::new(capacity))),
+            incoming_values: Arc::new(RwLock::new(Table::new(capacity))),
+            object_names: Arc::new(RwLock::new(Table::new(capacity))),
+            outgoing_values: Arc::new(RwLock::new(Table::new(capacity))),
         })
     }
 }
@@ -142,20 +179,11 @@ pub struct InstanceBuilder {
     store_manager: Arc<AppStoreManager>,
     /// The allowed stores for this component instance.
     allowed_stores: HashSet<String>,
+    ctx: wasmtime_wasi::WasiCtx,
+    containers: Arc<RwLock<Table<Arc<dyn Container>>>>,
+    incoming_values: Arc<RwLock<Table<Box<dyn IncomingData>>>>,
+    outgoing_values: Arc<RwLock<Table<host::OutgoingValue>>>,
+    object_names: Arc<RwLock<Table<Box<dyn ObjectNames>>>>,
 }
 
-impl FactorInstanceBuilder for InstanceBuilder {
-    type InstanceState = BlobStoreDispatch;
-
-    fn build(self) -> anyhow::Result<Self::InstanceState> {
-        let Self {
-            store_manager,
-            allowed_stores,
-        } = self;
-        Ok(BlobStoreDispatch::new_with_capacity(
-            allowed_stores,
-            store_manager,
-            u32::MAX,
-        ))
-    }
-}
+impl spin_factors::SelfInstanceBuilder for InstanceBuilder {}

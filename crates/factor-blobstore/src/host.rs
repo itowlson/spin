@@ -2,8 +2,10 @@ use anyhow::{Context, Result};
 use spin_core::{async_trait, wasmtime::component::Resource};
 use spin_resource_table::Table;
 use spin_world::wasi::blobstore;
+use tokio::sync::RwLock;
 use std::{collections::HashSet, sync::Arc};
 // use tracing::{instrument, Level};
+use wasmtime_wasi::WasiView;
 
 const DEFAULT_STORE_TABLE_CAPACITY: u32 = 256;
 
@@ -50,74 +52,70 @@ pub trait IncomingData : Send + Sync {
     async fn size(&mut self) -> anyhow::Result<u64>;
 }
 
-struct OutgoingValue;
+pub(crate) struct OutgoingValue;
 
-pub struct BlobStoreDispatch {
+pub struct BlobStoreDispatch<'a> {
     allowed_containers: HashSet<String>,
     manager: Arc<dyn ContainerManager>,
-    containers: Table<Arc<dyn Container>>,
-    incoming_values: Table<Box<dyn IncomingData>>,
-    input_streams: Table<wasmtime_wasi::pipe::AsyncReadStream>,
-    outgoing_values: Table<OutgoingValue>,
-    object_names: Table<Box<dyn ObjectNames>>,
+    wasi: wasmtime_wasi::WasiImpl<WasiImplInner<'a>>,
+    containers: Arc<RwLock<Table<Arc<dyn Container>>>>,
+    incoming_values: Arc<RwLock<Table<Box<dyn IncomingData>>>>,
+    outgoing_values: Arc<RwLock<Table<OutgoingValue>>>,
+    object_names: Arc<RwLock<Table<Box<dyn ObjectNames>>>>,
 }
 
-impl BlobStoreDispatch {
-    pub fn new(allowed_containers: HashSet<String>, manager: Arc<dyn ContainerManager>) -> Self {
-        Self::new_with_capacity(allowed_containers, manager, DEFAULT_STORE_TABLE_CAPACITY)
+pub struct WasiImplInner<'a> {
+    pub ctx: &'a mut wasmtime_wasi::WasiCtx,
+    pub table: &'a mut spin_core::wasmtime::component::ResourceTable,
+}
+
+impl<'a> wasmtime_wasi::WasiView for WasiImplInner<'a> {
+    fn ctx(&mut self) -> &mut wasmtime_wasi::WasiCtx {
+        self.ctx
     }
 
-    pub fn new_with_capacity(
-        allowed_container: HashSet<String>,
+    fn table(&mut self) -> &mut spin_core::wasmtime::component::ResourceTable {
+        self.table
+    }
+}
+
+impl<'a> BlobStoreDispatch<'a> {
+    pub(crate) fn new(allowed_containers: HashSet<String>,
         manager: Arc<dyn ContainerManager>,
-        capacity: u32,
+        wasi: wasmtime_wasi::WasiImpl<WasiImplInner<'a>>,
+        containers: Arc<RwLock<Table<Arc<dyn Container>>>>,
+        incoming_values: Arc<RwLock<Table<Box<dyn IncomingData>>>>,
+        outgoing_values: Arc<RwLock<Table<OutgoingValue>>>,
+        object_names: Arc<RwLock<Table<Box<dyn ObjectNames>>>>,
     ) -> Self {
         Self {
-            allowed_containers: allowed_container,
+            allowed_containers,
             manager,
-            containers: Table::new(capacity),
-            incoming_values: Table::new(capacity),
-            input_streams: Table::new(capacity),
-            outgoing_values: Table::new(capacity),
-            object_names: Table::new(capacity),
+            wasi,
+            containers,
+            incoming_values,
+            outgoing_values,
+            object_names,
         }
     }
 
-    pub fn get_container(&self, container: Resource<blobstore::blobstore::Container>) -> anyhow::Result<&Arc<dyn Container>> {
-        self.containers.get(container.rep()).context("invalid container")
+    pub async fn get_container(&self, container: Resource<blobstore::blobstore::Container>) -> anyhow::Result<Arc<dyn Container>> {
+        self.containers.read().await.get(container.rep()).context("invalid container").cloned()
     }
 
     pub fn allowed_containers(&self) -> &HashSet<String> {
         &self.allowed_containers
     }
 
-    fn container(&self, resource: Resource<blobstore::container::Container>) -> Result<&Arc<dyn Container>, String> {
-        self.containers.get(resource.rep()).ok_or_else(||
-            "invalid container resource".to_string()
-        )
-    }
-
-    fn object_names(&mut self, resource: Resource<blobstore::container::StreamObjectNames>) -> Result<&mut Box<dyn ObjectNames>, String> {
-        self.object_names.get_mut(resource.rep()).ok_or_else(||
-            "invalid stream-object-names resource".to_string()
-        )
-    }
-
-    fn incoming_value(&mut self, resource: Resource<blobstore::container::IncomingValue>) -> Result<&mut Box<dyn IncomingData>, String> {
-        self.incoming_values.get_mut(resource.rep()).ok_or_else(||
-            "invalid incoming-value resource".to_string()
-        )
-    }
-
-    fn take_incoming_value(&mut self, resource: Resource<blobstore::container::IncomingValue>) -> Result<Box<dyn IncomingData>, String> {
-        self.incoming_values.remove(resource.rep()).ok_or_else(||
+    async fn take_incoming_value(&mut self, resource: Resource<blobstore::container::IncomingValue>) -> Result<Box<dyn IncomingData>, String> {
+        self.incoming_values.write().await.remove(resource.rep()).ok_or_else(||
             "invalid incoming-value resource".to_string()
         )
     }
 }
 
 #[async_trait]
-impl blobstore::blobstore::Host for BlobStoreDispatch {
+impl<'a> blobstore::blobstore::Host for BlobStoreDispatch<'a> {
     async fn create_container(&mut self, _name: String) -> Result<Resource<blobstore::container::Container>, String> {
         Err("This version of Spin does not support creating containers".to_owned())
     }
@@ -125,7 +123,7 @@ impl blobstore::blobstore::Host for BlobStoreDispatch {
     async fn get_container(&mut self, name: String) -> Result<Resource<blobstore::container::Container>, String> {
         if self.allowed_containers.contains(&name) {
             let container = self.manager.get(&name).await?;
-            let rep = self.containers.push(container).unwrap();
+            let rep = self.containers.write().await.push(container).unwrap();
             Ok(Resource::new_own(rep))
         } else {
             Err("forbidden container".to_owned())
@@ -155,42 +153,45 @@ impl blobstore::blobstore::Host for BlobStoreDispatch {
 }
 
 #[async_trait]
-impl blobstore::types::Host for BlobStoreDispatch {
+impl<'a> blobstore::types::Host for BlobStoreDispatch<'a> {
     fn convert_error(&mut self, error: String) -> anyhow::Result<String> {
         Ok(error)
     }
 }
 
 #[async_trait]
-impl blobstore::types::HostIncomingValue for BlobStoreDispatch {
+impl<'a> blobstore::types::HostIncomingValue for BlobStoreDispatch<'a> {
     async fn incoming_value_consume_sync(&mut self, self_: Resource<blobstore::types::IncomingValue>) -> Result<Vec<u8>, String> {
-        let mut incoming = self.take_incoming_value(self_)?;
+        let mut incoming = self.take_incoming_value(self_).await?;
         incoming.as_mut().consume_sync().await.map_err(|e| e.to_string())
     }
 
-    async fn incoming_value_consume_async(&mut self, self_: Resource<blobstore::types::IncomingValue>) -> Result<Resource<blobstore::types::InputStream>, String> {
-        let mut incoming = self.take_incoming_value(self_)?;
+    async fn incoming_value_consume_async(&mut self, self_: Resource<blobstore::types::IncomingValue>) -> Result<Resource<wasmtime_wasi::InputStream>, String> {
+        let mut incoming = self.take_incoming_value(self_).await?;
         let async_body = incoming.as_mut().consume_async();
-        let rep = self.input_streams.push(async_body).unwrap();
-        Ok(Resource::new_own(rep))
+        let host_stm: Box<dyn wasmtime_wasi::HostInputStream> = Box::new(async_body);
+        let resource = self.wasi.table().push(host_stm).unwrap();
+        // let rep = self.input_streams.write().await.push(async_body).unwrap();
+        Ok(resource)
     }
 
     async fn size(&mut self, self_: Resource<blobstore::types::IncomingValue>) -> anyhow::Result<u64> {
-        let incoming = self.incoming_value(self_).map_err(|s| anyhow::anyhow!("{s}"))?;
+        let mut lock = self.incoming_values.write().await;
+        let incoming = lock.get_mut(self_.rep()).ok_or_else(|| anyhow::anyhow!("invalid incoming-value resource"))?;
         incoming.size().await
     }
 
     async fn drop(&mut self, rep: Resource<blobstore::types::IncomingValue>) -> anyhow::Result<()> {
-        self.incoming_values.remove(rep.rep());
+        self.incoming_values.write().await.remove(rep.rep());
         Ok(())
     }
 }
 
 #[async_trait]
-impl blobstore::types::HostOutgoingValue for BlobStoreDispatch {
+impl<'a> blobstore::types::HostOutgoingValue for BlobStoreDispatch<'a> {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<blobstore::types::OutgoingValue>> {
         let outgoing_value = OutgoingValue;
-        let rep = self.outgoing_values.push(outgoing_value).unwrap();
+        let rep = self.outgoing_values.write().await.push(outgoing_value).unwrap();
         Ok(Resource::new_own(rep))
     }
 
@@ -203,31 +204,40 @@ impl blobstore::types::HostOutgoingValue for BlobStoreDispatch {
     }
 
     async fn drop(&mut self, rep: Resource<blobstore::types::OutgoingValue>) -> anyhow::Result<()> {
-        self.outgoing_values.remove(rep.rep());
+        self.outgoing_values.write().await.remove(rep.rep());
         Ok(())
     }
 }
 
 // TODO: TBD if these belong on BSD or some other struct (like the one that maps to a Container resource JUST SAYIN)
 #[async_trait]
-impl blobstore::container::Host for BlobStoreDispatch {}
+impl<'a> blobstore::container::Host for BlobStoreDispatch<'a> {}
 
 #[async_trait]
-impl blobstore::container::HostContainer for BlobStoreDispatch {
+impl<'a> blobstore::container::HostContainer for BlobStoreDispatch<'a> {
     async fn name(&mut self, self_: Resource<blobstore::container::Container>) -> Result<String, String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         Ok(container.name().await)
     }
 
     async fn info(&mut self, self_: Resource<blobstore::container::Container>) -> Result<blobstore::container::ContainerMetadata, String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         container.info().await.map_err(|e| e.to_string())
     }
 
     async fn get_data(&mut self, self_: Resource<blobstore::container::Container>, name: blobstore::container::ObjectName, start: u64, end: u64) -> Result<Resource<blobstore::types::IncomingValue>, String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         let incoming = container.get_data(&name, start, end).await.map_err(|e| e.to_string())?;
-        let rep = self.incoming_values.push(incoming).unwrap();
+        let rep = self.incoming_values.write().await.push(incoming).unwrap();
         Ok(Resource::new_own(rep))
     }
 
@@ -236,57 +246,81 @@ impl blobstore::container::HostContainer for BlobStoreDispatch {
     }
 
     async fn list_objects(&mut self, self_: Resource<blobstore::container::Container>) -> Result<Resource<blobstore::container::StreamObjectNames>, String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         let names = container.list_objects().await.map_err(|e| e.to_string())?;
-        let rep = self.object_names.push(names).unwrap();
+        let rep = self.object_names.write().await.push(names).unwrap();
         Ok(Resource::new_own(rep))
     }
 
     async fn delete_object(&mut self, self_: Resource<blobstore::container::Container>, name: String) -> Result<(), String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         container.delete_object(&name).await.map_err(|e| e.to_string())
     }
 
     async fn delete_objects(&mut self, self_: Resource<blobstore::container::Container>, names: Vec<String>) -> Result<(), String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         container.delete_objects(&names).await.map_err(|e| e.to_string())
     }
 
     async fn has_object(&mut self, self_: Resource<blobstore::container::Container>, name: String) -> Result<bool, String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         container.has_object(&name).await.map_err(|e| e.to_string())
     }
 
     async fn object_info(&mut self, self_: Resource<blobstore::container::Container>, name: String) -> Result<blobstore::types::ObjectMetadata, String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         container.object_info(&name).await.map_err(|e| e.to_string())
     }
 
     async fn clear(&mut self, self_: Resource<blobstore::container::Container>) -> Result<(), String> {
-        let container = self.container(self_)?;
+        let lock = self.containers.read().await;
+        let container = lock.get(self_.rep()).ok_or_else(||
+            "invalid container resource".to_string()
+        )?;
         container.clear().await.map_err(|e| e.to_string())
     }
 
     async fn drop(&mut self, rep: Resource<blobstore::container::Container>) -> anyhow::Result<()> {
-        self.containers.remove(rep.rep());
+        self.containers.write().await.remove(rep.rep());
         Ok(())
     }
 }
 
 #[async_trait]
-impl blobstore::container::HostStreamObjectNames for BlobStoreDispatch {
+impl<'a> blobstore::container::HostStreamObjectNames for BlobStoreDispatch<'a> {
     async fn read_stream_object_names(&mut self, self_: Resource<blobstore::container::StreamObjectNames>, len: u64) -> Result<(Vec<String>,bool), String> {
-        let object_names = self.object_names(self_)?;
-        object_names.as_mut().read(len).await.map_err(|e| e.to_string())
+        let mut lock = self.object_names.write().await;
+        let object_names = lock.get_mut(self_.rep()).ok_or_else(||
+            "invalid stream-object-names resource".to_string()
+        )?;
+        object_names.read(len).await.map_err(|e| e.to_string())
     }
 
     async fn skip_stream_object_names(&mut self, self_: Resource<blobstore::container::StreamObjectNames>, num: u64) -> Result<(u64,bool), String> {
-        let object_names = self.object_names(self_)?;
-        object_names.as_mut().skip(num).await.map_err(|e| e.to_string())
+        let mut lock = self.object_names.write().await;
+        let object_names = lock.get_mut(self_.rep()).ok_or_else(||
+            "invalid stream-object-names resource".to_string()
+        )?;
+        object_names.skip(num).await.map_err(|e| e.to_string())
     }
 
     async fn drop(&mut self, rep: Resource<blobstore::container::StreamObjectNames>) -> anyhow::Result<()> {
-        self.object_names.remove(rep.rep());
+        self.object_names.write().await.remove(rep.rep());
         Ok(())
     }
 }
