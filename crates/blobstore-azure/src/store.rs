@@ -153,6 +153,14 @@ impl Container for AzureBlobContainer {
         Ok(Box::new(AzureBlobIncomingData::new(client, range)))
     }
 
+    async fn attach_writer(&self, name: &str, data: &spin_factor_blobstore::OutgoingValue) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    async fn get_write_stream(&self, name: &str) -> anyhow::Result<wasmtime_wasi::pipe::AsyncWriteStream> {
+        todo!()
+    }
+
     async fn list_objects(&self) -> anyhow::Result<Box<dyn spin_factor_blobstore::ObjectNames>> {
         let stm = self.client.list_blobs().into_stream();
         Ok(Box::new(AzureBlobBlobsList::new(stm)))

@@ -74,6 +74,7 @@ impl spin_factor_blobstore::ContainerManager for BlobStoreInMemory {
 struct InMemoryContainer {
     name: String,
     blobs: Arc<RwLock<HashMap<String, Vec<u8>>>>,
+    writes_in_progress: Arc<RwLock<HashMap<String, WriteInProgress>>>,
 }
 
 impl InMemoryContainer {
@@ -81,6 +82,7 @@ impl InMemoryContainer {
         Self {
             name: name.to_string(),
             blobs: Default::default(),
+            writes_in_progress: Default::default(),
         }
     }
 
@@ -142,10 +144,60 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
 
         Ok(Box::new(InMemoryBlobContent { data }))
     }
+    async fn attach_writer(&self, name: &str, data: &spin_factor_blobstore::OutgoingValue) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    async fn get_write_stream(&self, name: &str) -> anyhow::Result<wasmtime_wasi::pipe::AsyncWriteStream> {
+        let (wip, stm) = WriteInProgress::new(name);
+        self.writes_in_progress.write().await.insert(name.to_string(), wip);
+        Ok(stm)
+    }
     async fn list_objects(&self) -> anyhow::Result<Box<dyn spin_factor_blobstore::ObjectNames>> {
         let blobs = self.read().await;
         let names = blobs.keys().map(|k| k.to_string()).collect();
         Ok(Box::new(InMemoryBlobNames { names }))
+    }
+}
+
+#[derive(Clone)]
+struct SharedBuf(Arc<std::sync::RwLock<Vec<u8>>>);
+
+struct WriteInProgress {
+    blob_name: String,
+    received: SharedBuf,
+    // stm: wasmtime_wasi::pipe::AsyncWriteStream,
+}
+
+impl WriteInProgress {
+    fn new(blob_name: impl Into<String>) -> (Self, wasmtime_wasi::pipe::AsyncWriteStream) {
+        let received = SharedBuf(Arc::new(std::sync::RwLock::new(vec![])));
+        let stm = wasmtime_wasi::pipe::AsyncWriteStream::new(10000, received.clone());
+        (Self {
+            blob_name: blob_name.into(),
+            received,
+            // stm,
+        }, stm)
+    }
+}
+
+impl tokio::io::AsyncWrite for SharedBuf {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        let mut v = self.get_mut().0.write().unwrap();
+        v.extend_from_slice(buf);
+        std::task::Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Ok(()))
     }
 }
 

@@ -17,7 +17,7 @@ use spin_resource_table::Table;
 /// Metadata key for key-value stores.
 pub const BLOB_STORES_KEY: MetadataKey<Vec<String>> = MetadataKey::new("blob_containers");
 pub use spin_world::wasi::blobstore::types::{ContainerMetadata, ObjectMetadata};
-pub use host::{log_error, Error, BlobStoreDispatch, Container, ContainerManager, IncomingData, ObjectNames};
+pub use host::{log_error, Error, BlobStoreDispatch, Container, ContainerManager, IncomingData, ObjectNames, OutgoingValue, Finishable};
 pub use runtime_config::RuntimeConfig;
 use tokio::sync::RwLock;
 pub use util::DelegatingContainerManager;
