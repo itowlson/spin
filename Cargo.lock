@@ -7693,6 +7693,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "uuid",
  "wasmtime-wasi",
 ]
 
@@ -7906,6 +7907,7 @@ name = "spin-factor-blobstore"
 version = "3.2.0-pre0"
 dependencies = [
  "anyhow",
+ "bytes",
  "futures",
  "lru",
  "serde",
