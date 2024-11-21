@@ -165,6 +165,10 @@ impl Container for AzureBlobContainer {
         todo!()
     }
 
+    async fn connect_stm(&self, name: &str, stm: tokio::io::ReadHalf<tokio::io::SimplexStream>) -> anyhow::Result<()> {
+        todo!()        
+    }
+
     async fn list_objects(&self) -> anyhow::Result<Box<dyn spin_factor_blobstore::ObjectNames>> {
         let stm = self.client.list_blobs().into_stream();
         Ok(Box::new(AzureBlobBlobsList::new(stm)))

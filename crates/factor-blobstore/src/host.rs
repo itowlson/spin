@@ -38,6 +38,7 @@ pub trait Container: Sync + Send {
     async fn get_data(&self, name: &str, start: u64, end: u64) -> anyhow::Result<Box<dyn IncomingData>>;
     async fn attach_writer(&self, name: &str, data: &OutgoingValue) -> anyhow::Result<()>;
     async fn get_write_stream(&self, name: &str) -> anyhow::Result<(wasmtime_wasi::pipe::AsyncWriteStream, Box<dyn Finishable>)>;
+    async fn connect_stm(&self, name: &str, stm: tokio::io::ReadHalf<tokio::io::SimplexStream>) -> anyhow::Result<()>;
     // async fn write_data(&self, name: &str, data: spin_core::wasmtime::component::Resource<blobstore::types::OutgoingValue>) -> anyhow::Result<()>;
     async fn list_objects(&self) -> anyhow::Result<Box<dyn ObjectNames>>;
 }
@@ -61,8 +62,9 @@ pub struct OutgoingValue {
     // end of the pipe to the back-end store?
     // stm: Option<wasmtime_wasi::pipe::AsyncWriteStream>,
     // finish: Option<Box<dyn Finishable>>,
-    read: tokio::io::ReadHalf<tokio::io::SimplexStream>,
-    write: tokio::io::WriteHald<tokio::io::SimplexStream>,
+    read: Option<tokio::io::ReadHalf<tokio::io::SimplexStream>>,
+    write: Option<tokio::io::WriteHalf<tokio::io::SimplexStream>>,
+    write_rep: Option<u32>,
 }
 
 const OUTGOING_VALUE_BUF_SIZE: usize = 16 * 1024;
@@ -70,19 +72,68 @@ const OUTGOING_VALUE_BUF_SIZE: usize = 16 * 1024;
 impl OutgoingValue {
     fn new() -> Self {
         let (read, write) = tokio::io::simplex(OUTGOING_VALUE_BUF_SIZE);
-        Self { read, write }
+        Self {
+            read: Some(read),
+            write: Some(write),
+            write_rep: None,
+       }
     }
 
-    async fn write_async(&mut self, data: &[u8]) -> anyhow::Result<()> {
-        todo!()
+    fn write_stream(&mut self) -> anyhow::Result<wasmtime_wasi::pipe::AsyncWriteStream> {
+        let Some(write) = self.write.take() else {
+            anyhow::bail!("OutgoingValue has already returned its write stream");
+        };
+
+        let stm = wasmtime_wasi::pipe::AsyncWriteStream::new(OUTGOING_VALUE_BUF_SIZE, write);
+        Ok(stm)
     }
-    async fn write_stream(&mut self) -> wasmtime_wasi::pipe::AsyncWriteStream {
-        self.stm.take().unwrap()
+
+    fn set_write_rep(&mut self, rep: u32) {
+        self.write_rep = Some(rep);
     }
+
+    fn write_rep(&self) -> Option<u32> {
+        self.write_rep
+    }
+
+    fn take_read_stream(&mut self) -> anyhow::Result<tokio::io::ReadHalf<tokio::io::SimplexStream>> {
+        let Some(read) = self.read.take() else {
+            anyhow::bail!("OutgoingValue has already been connected to a blob");
+        };
+
+        // let stm = wasmtime_wasi::pipe::AsyncReadStream::new(read);
+        // Ok(stm)
+        Ok(read)
+    }
+
     async fn finish(&mut self) -> anyhow::Result<()> {
         todo!()
     }
 }
+
+// struct Spork<T>(Arc<std::sync::RwLock<T>>);
+
+// impl<T: tokio::io::AsyncWrite> tokio::io::AsyncWrite for Spork<T> {
+//     fn poll_write(
+//         self: std::pin::Pin<&mut Self>,
+//         cx: &mut std::task::Context<'_>,
+//         buf: &[u8],
+//     ) -> std::task::Poll<std::result::Result<usize, std::io::Error>> {
+//         use std::ops::DerefMut;
+//         let mut lock = self.0.write().unwrap();
+//         let r: &mut T = lock.deref_mut();
+//         let p = std::pin::pin!(r);
+//         p.poll_write(cx, buf)
+//     }
+
+//     fn poll_flush(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+//         todo!()
+//     }
+
+//     fn poll_shutdown(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+//         todo!()
+//     }
+// }
 
 #[async_trait]
 pub trait Finishable : Send + Sync {
@@ -232,16 +283,25 @@ impl<'a> blobstore::types::HostOutgoingValue for BlobStoreDispatch<'a> {
     async fn outgoing_value_write_body(&mut self, self_: Resource<blobstore::types::OutgoingValue>) -> anyhow::Result<Result<Resource<wasmtime_wasi::OutputStream>, ()>> {
         let mut lock = self.outgoing_values.write().await;
         let outgoing = lock.get_mut(self_.rep()).ok_or_else(|| anyhow::anyhow!("invalid outgoing-value resource"))?;
-        let stm = outgoing.write_stream().await;
+        let stm = outgoing.write_stream()?;
         let host_stm: Box<dyn wasmtime_wasi::HostOutputStream> = Box::new(stm);
         let resource = self.wasi.table().push(host_stm).unwrap();
+        outgoing.set_write_rep(resource.rep());
         Ok(Ok(resource))
     }
 
     async fn finish(&mut self, self_: Resource<blobstore::types::OutgoingValue>) -> Result<(), String> {
         let mut lock = self.outgoing_values.write().await;
         let outgoing = lock.get_mut(self_.rep()).ok_or_else(|| "invalid outgoing-value resource".to_owned())?;
-        outgoing.finish().await.map_err(|e| e.to_string())?;
+        let write_rep = outgoing.write_rep().ok_or_else(|| "no stm".to_string())?;
+        let any = self.wasi.table().get_any_mut(write_rep).expect("we didn't get the Any");
+        println!("we got a {}", std::any::type_name_of_val(any));
+        let stm: &mut Box<dyn wasmtime_wasi::HostOutputStream> = any.downcast_mut().expect("we didn't get the stm");
+        // use tokio::io::AsyncWriteExt;
+        // use futures::
+        println!("well we kinda got it");
+        stm.flush().unwrap();
+        // outgoing.finish().await.map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -292,9 +352,13 @@ impl<'a> blobstore::container::HostContainer for BlobStoreDispatch<'a> {
         let outgoing = lock2.get_mut(data.rep()).ok_or_else(||
             "invalid outgoing-value resource".to_string()
         )?;
-        let (stm, finish) = container.get_write_stream(&name).await.map_err(|e| e.to_string())?;
-        outgoing.stm = Some(stm);
-        outgoing.finish = Some(finish);
+
+        let stm = outgoing.take_read_stream().map_err(|e| e.to_string())?;
+        container.connect_stm(&name, stm).await.map_err(|e| e.to_string())?;
+
+        // let (stm, finish) = container.get_write_stream(&name).await.map_err(|e| e.to_string())?;
+        // outgoing.stm = Some(stm);
+        // outgoing.finish = Some(finish);
         Ok(())
     }
 
