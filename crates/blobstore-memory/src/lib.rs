@@ -148,11 +148,13 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         todo!()
     }
 
-    async fn get_write_stream(&self, name: &str) -> anyhow::Result<wasmtime_wasi::pipe::AsyncWriteStream> {
+    async fn get_write_stream(&self, name: &str) -> anyhow::Result<(wasmtime_wasi::pipe::AsyncWriteStream, Box<dyn spin_factor_blobstore::Finishable>)> {
         let (wip, stm) = WriteInProgress::new(name);
         self.writes_in_progress.write().await.insert(name.to_string(), wip);
-        Ok(stm)
+        let fin = WriteFinisher { name: name.to_string() };
+        Ok((stm, Box::new(fin)))
     }
+
     async fn list_objects(&self) -> anyhow::Result<Box<dyn spin_factor_blobstore::ObjectNames>> {
         let blobs = self.read().await;
         let names = blobs.keys().map(|k| k.to_string()).collect();
@@ -178,6 +180,17 @@ impl WriteInProgress {
             received,
             // stm,
         }, stm)
+    }
+}
+
+struct WriteFinisher {
+    name: String,
+}
+
+#[async_trait]
+impl spin_factor_blobstore::Finishable for WriteFinisher {
+    async fn finish(&mut self) {
+        todo!()
     }
 }
 

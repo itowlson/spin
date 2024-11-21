@@ -56,11 +56,23 @@ pub trait IncomingData : Send + Sync {
 }
 
 pub struct OutgoingValue {
-    stm: Option<wasmtime_wasi::pipe::AsyncWriteStream>,
-    finish: Option<Box<dyn Finishable>>,
+    // I wonder if this is more a pipe - then write_async gets you the
+    // write end of the pipe, and container::write-data hooks up the read
+    // end of the pipe to the back-end store?
+    // stm: Option<wasmtime_wasi::pipe::AsyncWriteStream>,
+    // finish: Option<Box<dyn Finishable>>,
+    read: tokio::io::ReadHalf<tokio::io::SimplexStream>,
+    write: tokio::io::WriteHald<tokio::io::SimplexStream>,
 }
 
+const OUTGOING_VALUE_BUF_SIZE: usize = 16 * 1024;
+
 impl OutgoingValue {
+    fn new() -> Self {
+        let (read, write) = tokio::io::simplex(OUTGOING_VALUE_BUF_SIZE);
+        Self { read, write }
+    }
+
     async fn write_async(&mut self, data: &[u8]) -> anyhow::Result<()> {
         todo!()
     }
@@ -212,7 +224,7 @@ impl<'a> blobstore::types::HostIncomingValue for BlobStoreDispatch<'a> {
 #[async_trait]
 impl<'a> blobstore::types::HostOutgoingValue for BlobStoreDispatch<'a> {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<blobstore::types::OutgoingValue>> {
-        let outgoing_value = OutgoingValue { stm: None, finish: None };
+        let outgoing_value = OutgoingValue::new(); // OutgoingValue { stm: None, finish: None };
         let rep = self.outgoing_values.write().await.push(outgoing_value).unwrap();
         Ok(Resource::new_own(rep))
     }
@@ -280,8 +292,9 @@ impl<'a> blobstore::container::HostContainer for BlobStoreDispatch<'a> {
         let outgoing = lock2.get_mut(data.rep()).ok_or_else(||
             "invalid outgoing-value resource".to_string()
         )?;
-        let stm = container.get_write_stream(&name).await.map_err(|e| e.to_string())?;
+        let (stm, finish) = container.get_write_stream(&name).await.map_err(|e| e.to_string())?;
         outgoing.stm = Some(stm);
+        outgoing.finish = Some(finish);
         Ok(())
     }
 

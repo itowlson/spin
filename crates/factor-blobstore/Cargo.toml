@@ -15,7 +15,7 @@ spin-factors = { path = "../factors" }
 spin-locked-app = { path = "../locked-app" }
 spin-resource-table = { path = "../table" }
 spin-world = { path = "../world" }
-tokio = { workspace = true, features = ["macros", "sync", "rt"] }
+tokio = { workspace = true, features = ["macros", "sync", "rt", "io-util"] }
 toml = { workspace = true }
 tracing = { workspace = true }
 wasmtime-wasi = { workspace = true }
