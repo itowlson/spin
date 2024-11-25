@@ -170,13 +170,11 @@ impl AsyncWriteStream {
         let stop_rx_join_handle = tokio::spawn(async move {
             let r = stop_rx.recv().await;
             if r.is_some() {
-                println!("** TRYNA SHUT DOWN");
                 let mut state = wclone.state();
                 state.check_error().expect("state should not have had an error");
         
                 state.shutdown_pending = true;
                 wclone.new_work.notify_one();
-                println!("** SHUT NOTIFIED");
             }
         }).abort_handle();
 
@@ -224,7 +222,6 @@ impl HostOutputStream for AsyncWriteStream {
     }
 
     async fn cancel(&mut self) {
-        println!("** AWSTM CANCELLING");
         self.stop_rx_join_handle.abort();
         match self.join_handle.take() {
             Some(task) => _ = cancel(task).await,

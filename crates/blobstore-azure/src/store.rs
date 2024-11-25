@@ -153,18 +153,6 @@ impl Container for AzureBlobContainer {
         Ok(Box::new(AzureBlobIncomingData::new(client, range)))
     }
 
-    async fn attach_writer(&self, name: &str, data: &spin_factor_blobstore::OutgoingValue) -> anyhow::Result<()> {
-        todo!()
-    }
-
-    // async fn get_write_stream(&self, name: &str) -> anyhow::Result<(wasmtime_wasi::pipe::AsyncWriteStream, Box<dyn spin_factor_blobstore::Finishable>)> {
-    //     let blob_client = self.client.blob_client(name);
-    //     let seekyboi = azure_core::BytesStream::new_empty();
-    //     let something = azure_core::Body::SeekableStream(Box::new(seekyboi));
-    //     let pbbr = blob_client.put_block_blob(something).await?;
-    //     todo!()
-    // }
-
     async fn connect_stm(&self, name: &str, stm: tokio::io::ReadHalf<tokio::io::SimplexStream>) -> anyhow::Result<()> {
         todo!()        
     }

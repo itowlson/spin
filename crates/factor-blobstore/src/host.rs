@@ -7,7 +7,7 @@ use std::{collections::HashSet, sync::Arc};
 // use tracing::{instrument, Level};
 use wasmtime_wasi::WasiView;
 
-const DEFAULT_STORE_TABLE_CAPACITY: u32 = 256;
+// const DEFAULT_STORE_TABLE_CAPACITY: u32 = 256;
 
 pub use blobstore::types::Error;
 
@@ -36,10 +36,7 @@ pub trait Container: Sync + Send {
     async fn has_object(&self, name: &str) -> anyhow::Result<bool>;
     async fn object_info(&self, name: &str) -> anyhow::Result<blobstore::types::ObjectMetadata>;
     async fn get_data(&self, name: &str, start: u64, end: u64) -> anyhow::Result<Box<dyn IncomingData>>;
-    async fn attach_writer(&self, name: &str, data: &OutgoingValue) -> anyhow::Result<()>;
-    // async fn get_write_stream(&self, name: &str) -> anyhow::Result<(/*wasmtime_wasi::pipe*/ crate::AsyncWriteStream, Box<dyn Finishable>)>;
     async fn connect_stm(&self, name: &str, stm: tokio::io::ReadHalf<tokio::io::SimplexStream>) -> anyhow::Result<()>;
-    // async fn write_data(&self, name: &str, data: spin_core::wasmtime::component::Resource<blobstore::types::OutgoingValue>) -> anyhow::Result<()>;
     async fn list_objects(&self) -> anyhow::Result<Box<dyn ObjectNames>>;
 }
 
@@ -57,14 +54,8 @@ pub trait IncomingData : Send + Sync {
 }
 
 pub struct OutgoingValue {
-    // I wonder if this is more a pipe - then write_async gets you the
-    // write end of the pipe, and container::write-data hooks up the read
-    // end of the pipe to the back-end store?
-    // stm: Option<wasmtime_wasi::pipe::AsyncWriteStream>,
-    // finish: Option<Box<dyn Finishable>>,
     read: Option<tokio::io::ReadHalf<tokio::io::SimplexStream>>,
     write: Option<tokio::io::WriteHalf<tokio::io::SimplexStream>>,
-    write_rep: Option<u32>,
     stop_tx: Option<tokio::sync::mpsc::Sender<()>>
 }
 
@@ -76,7 +67,6 @@ impl OutgoingValue {
         Self {
             read: Some(read),
             write: Some(write),
-            write_rep: None,
             stop_tx: None,
        }
     }
@@ -90,16 +80,8 @@ impl OutgoingValue {
 
         self.stop_tx = Some(stop_tx);
 
-        let stm = /*wasmtime_wasi::pipe*/crate::AsyncWriteStream::new(OUTGOING_VALUE_BUF_SIZE, write, stop_rx);
+        let stm = crate::AsyncWriteStream::new(OUTGOING_VALUE_BUF_SIZE, write, stop_rx);
         Ok(stm)
-    }
-
-    fn set_write_rep(&mut self, rep: u32) {
-        self.write_rep = Some(rep);
-    }
-
-    fn write_rep(&self) -> Option<u32> {
-        self.write_rep
     }
 
     fn stop_tx(&self) -> Option<&tokio::sync::mpsc::Sender<()>> {
@@ -111,39 +93,9 @@ impl OutgoingValue {
             anyhow::bail!("OutgoingValue has already been connected to a blob");
         };
 
-        // let stm = wasmtime_wasi::pipe::AsyncReadStream::new(read);
-        // Ok(stm)
         Ok(read)
     }
-
-    async fn finish(&mut self) -> anyhow::Result<()> {
-        todo!()
-    }
 }
-
-// struct Spork<T>(Arc<std::sync::RwLock<T>>);
-
-// impl<T: tokio::io::AsyncWrite> tokio::io::AsyncWrite for Spork<T> {
-//     fn poll_write(
-//         self: std::pin::Pin<&mut Self>,
-//         cx: &mut std::task::Context<'_>,
-//         buf: &[u8],
-//     ) -> std::task::Poll<std::result::Result<usize, std::io::Error>> {
-//         use std::ops::DerefMut;
-//         let mut lock = self.0.write().unwrap();
-//         let r: &mut T = lock.deref_mut();
-//         let p = std::pin::pin!(r);
-//         p.poll_write(cx, buf)
-//     }
-
-//     fn poll_flush(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
-//         todo!()
-//     }
-
-//     fn poll_shutdown(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
-//         todo!()
-//     }
-// }
 
 #[async_trait]
 pub trait Finishable : Send + Sync {
@@ -156,7 +108,7 @@ pub struct BlobStoreDispatch<'a> {
     wasi: wasmtime_wasi::WasiImpl<WasiImplInner<'a>>,
     containers: Arc<RwLock<Table<Arc<dyn Container>>>>,
     incoming_values: Arc<RwLock<Table<Box<dyn IncomingData>>>>,
-    //outgoing_values: Arc<RwLock<Table<OutgoingValue>>>,
+    outgoing_values: Arc<RwLock<Table<OutgoingValue>>>,
     object_names: Arc<RwLock<Table<Box<dyn ObjectNames>>>>,
 }
 
@@ -181,7 +133,7 @@ impl<'a> BlobStoreDispatch<'a> {
         wasi: wasmtime_wasi::WasiImpl<WasiImplInner<'a>>,
         containers: Arc<RwLock<Table<Arc<dyn Container>>>>,
         incoming_values: Arc<RwLock<Table<Box<dyn IncomingData>>>>,
-        //outgoing_values: Arc<RwLock<Table<OutgoingValue>>>,
+        outgoing_values: Arc<RwLock<Table<OutgoingValue>>>,
         object_names: Arc<RwLock<Table<Box<dyn ObjectNames>>>>,
     ) -> Self {
         Self {
@@ -190,7 +142,7 @@ impl<'a> BlobStoreDispatch<'a> {
             wasi,
             containers,
             incoming_values,
-            //outgoing_values,
+            outgoing_values,
             object_names,
         }
     }
@@ -285,76 +237,37 @@ impl<'a> blobstore::types::HostIncomingValue for BlobStoreDispatch<'a> {
 #[async_trait]
 impl<'a> blobstore::types::HostOutgoingValue for BlobStoreDispatch<'a> {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<blobstore::types::OutgoingValue>> {
-        let outgoing_value = OutgoingValue::new(); // OutgoingValue { stm: None, finish: None };
-        let ov_wrapped: spin_world::BoxedAny = Box::new(outgoing_value);
-        // let rep = self.outgoing_values.write().await.push(outgoing_value).unwrap();
-        // Ok(Resource::new_own(rep))
-        let resource = self.wasi.table().push(ov_wrapped).unwrap();
-        Ok(resource)
+        let outgoing_value = OutgoingValue::new();
+        let rep = self.outgoing_values.write().await.push(outgoing_value).unwrap();
+        Ok(Resource::new_own(rep))
     }
 
     async fn outgoing_value_write_body(&mut self, self_: Resource<blobstore::types::OutgoingValue>) -> anyhow::Result<Result<Resource<wasmtime_wasi::OutputStream>, ()>> {
-        // let mut lock = self.outgoing_values.write().await;
-        // let outgoing = lock.get_mut(self_.rep()).ok_or_else(|| anyhow::anyhow!("invalid outgoing-value resource"))?;
-        let stm = {
-        let anyed_ov = self.wasi.table().get_mut(&self_).unwrap();
-        let outgoing = anyed_ov.downcast_mut::<OutgoingValue>().expect("shoulda downcast");
+        let mut lock = self.outgoing_values.write().await;
+        let outgoing = lock.get_mut(self_.rep()).ok_or_else(||
+            anyhow::anyhow!("invalid outgoing-value resource")
+        )?;
         let stm = outgoing.write_stream()?;
-        stm
-        };
 
-        let resource = {
         let host_stm: Box<dyn wasmtime_wasi::HostOutputStream> = Box::new(stm);
         let resource = self.wasi.table().push(host_stm).unwrap();
-        // let resource = self.wasi.table().push_child(host_stm, &self_).unwrap();
-        resource
-        };
 
-        let anyed_ov = self.wasi.table().get_mut(&self_).unwrap();
-        let outgoing = anyed_ov.downcast_mut::<OutgoingValue>().expect("shoulda downcast");
-        outgoing.set_write_rep(resource.rep());
         Ok(Ok(resource))
     }
 
     async fn finish(&mut self, self_: Resource<blobstore::types::OutgoingValue>) -> Result<(), String> {
-        let stop_tx = {
-            let anyed_ov = self.wasi.table().get_mut(&self_).unwrap();
-            let outgoing = anyed_ov.downcast_mut::<OutgoingValue>().expect("shoulda downcast");
-            outgoing.stop_tx().expect("shoulda had a stop_tx")
-        };
+        let lock = self.outgoing_values.write().await;
+        let outgoing = lock.get(self_.rep()).ok_or_else(||
+            "invalid outgoing-value resource".to_string()
+        )?;
+        let stop_tx = outgoing.stop_tx().expect("shoulda had a stop_tx");
 
-        // let mut lock = self.outgoing_values.write().await;
-        // let outgoing = lock.get_mut(self_.rep()).ok_or_else(|| "invalid outgoing-value resource".to_owned())?;
-        // let write_rep = outgoing.write_rep().ok_or_else(|| "no stm".to_string())?;
-        // let any = self.wasi.table().get_any_mut(write_rep).expect("we didn't get the Any");
-        // println!("we got a {}", std::any::type_name_of_val(any));
-        // let stm: &mut Box<dyn wasmtime_wasi::HostOutputStream> = any.downcast_mut().expect("we didn't get the stm");
-        // // use tokio::io::AsyncWriteExt;
-        // // use futures::
-        // println!("well we kinda got it");
-        // stm.flush().unwrap();
-        // outgoing.finish().await.map_err(|e| e.to_string())?;
-
-        // self.wasi.table().delete(self_).unwrap();
-        // Ok(())
-
-        // let stm_any = self.wasi.table().get_any_mut(write_rep).expect("shoulda had a resource for stm");
-
-        // // let mut ch = self.wasi.table().iter_children(&self_).expect("children");
-        // // let stm_ch = ch.next().expect("shoulda had a child");
-        // let stm = stm_any.downcast_mut::<Box<dyn wasmtime_wasi::HostOutputStream>>().expect("downcast to dyn stm");
-        // // let stm = stm.as
-        // stm.shutdown().await.expect("shoulda shut down");
         stop_tx.send(()).await.expect("shoulda sent a stop");
-        println!("****** SHUTDOWN SENT");
         Ok(())
-        // drop(stm);
-        // Ok(())
     }
 
     async fn drop(&mut self, rep: Resource<blobstore::types::OutgoingValue>) -> anyhow::Result<()> {
-        // self.outgoing_values.write().await.remove(rep.rep());
-        self.wasi.table().delete(rep)?;
+        self.outgoing_values.write().await.remove(rep.rep());
         Ok(())
     }
 }
@@ -396,19 +309,14 @@ impl<'a> blobstore::container::HostContainer for BlobStoreDispatch<'a> {
         let container = lock.get(self_.rep()).ok_or_else(||
             "invalid container resource".to_string()
         )?;
-        // let mut lock2 = self.outgoing_values.write().await;
-        // let outgoing = lock2.get_mut(data.rep()).ok_or_else(||
-        //     "invalid outgoing-value resource".to_string()
-        // )?;
-        let anyed_ov = self.wasi.table().get_mut(&data).unwrap();
-        let outgoing = anyed_ov.downcast_mut::<OutgoingValue>().expect("shoulda downcast");
+        let mut lock2 = self.outgoing_values.write().await;
+        let outgoing = lock2.get_mut(data.rep()).ok_or_else(||
+            "invalid outgoing-value resource".to_string()
+        )?;
 
         let stm = outgoing.take_read_stream().map_err(|e| e.to_string())?;
         container.connect_stm(&name, stm).await.map_err(|e| e.to_string())?;
 
-        // let (stm, finish) = container.get_write_stream(&name).await.map_err(|e| e.to_string())?;
-        // outgoing.stm = Some(stm);
-        // outgoing.finish = Some(finish);
         Ok(())
     }
 

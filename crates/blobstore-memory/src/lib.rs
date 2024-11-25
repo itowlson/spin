@@ -147,17 +147,6 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
 
         Ok(Box::new(InMemoryBlobContent { data }))
     }
-    async fn attach_writer(&self, name: &str, data: &spin_factor_blobstore::OutgoingValue) -> anyhow::Result<()> {
-        todo!()
-    }
-
-    // async fn get_write_stream(&self, name: &str) -> anyhow::Result<(wasmtime_wasi::pipe::AsyncWriteStream, Box<dyn spin_factor_blobstore::Finishable>)> {
-    //     // let (wip, stm) = WriteInProgress::new(name);
-    //     // self.writes_in_progress.write().await.insert(name.to_string(), wip);
-    //     // let fin = WriteFinisher { name: name.to_string() };
-    //     // Ok((stm, Box::new(fin)))
-    //     todo!()
-    // }
 
     async fn connect_stm(&self, name: &str, mut stm: tokio::io::ReadHalf<tokio::io::SimplexStream>) -> anyhow::Result<()> {
         use tokio::io::AsyncReadExt;
@@ -165,10 +154,7 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         let blobs = self.blobs.clone();
         let h = tokio::spawn(async move {
             let mut bytes = Vec::with_capacity(1024);
-            println!("** reading stm");
             stm.read_to_end(&mut bytes).await.unwrap();
-            // stm.read_exact(&mut bytes).await.unwrap();
-            println!("** read stm");
             let mut lock = blobs.write().await;
             lock.insert(name, bytes);
         });
@@ -182,58 +168,6 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         Ok(Box::new(InMemoryBlobNames { names }))
     }
 }
-
-// #[derive(Clone)]
-// struct SharedBuf(Arc<std::sync::RwLock<Vec<u8>>>);
-
-// struct WriteInProgress {
-//     blob_name: String,
-//     received: SharedBuf,
-//     // stm: wasmtime_wasi::pipe::AsyncWriteStream,
-// }
-
-// impl WriteInProgress {
-//     fn new(blob_name: impl Into<String>) -> (Self, wasmtime_wasi::pipe::AsyncWriteStream) {
-//         let received = SharedBuf(Arc::new(std::sync::RwLock::new(vec![])));
-//         let stm = wasmtime_wasi::pipe::AsyncWriteStream::new(10000, received.clone());
-//         (Self {
-//             blob_name: blob_name.into(),
-//             received,
-//             // stm,
-//         }, stm)
-//     }
-// }
-
-// struct WriteFinisher {
-//     name: String,
-// }
-
-// #[async_trait]
-// impl spin_factor_blobstore::Finishable for WriteFinisher {
-//     async fn finish(&mut self) {
-//         todo!()
-//     }
-// }
-
-// impl tokio::io::AsyncWrite for SharedBuf {
-//     fn poll_write(
-//         self: std::pin::Pin<&mut Self>,
-//         _cx: &mut std::task::Context<'_>,
-//         buf: &[u8],
-//     ) -> std::task::Poll<Result<usize, std::io::Error>> {
-//         let mut v = self.get_mut().0.write().unwrap();
-//         v.extend_from_slice(buf);
-//         std::task::Poll::Ready(Ok(buf.len()))
-//     }
-
-//     fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), std::io::Error>> {
-//         std::task::Poll::Ready(Ok(()))
-//     }
-
-//     fn poll_shutdown(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), std::io::Error>> {
-//         std::task::Poll::Ready(Ok(()))
-//     }
-// }
 
 struct InMemoryBlobContent {
     data: Vec<u8>,
