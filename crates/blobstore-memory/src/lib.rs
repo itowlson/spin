@@ -103,7 +103,6 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         Ok(true)
     }
     async fn name(&self) -> String {
-        println!("JH count: {}", self.join_handles.read().await.len());
         self.name.clone()
     }
     async fn info(&self) -> anyhow::Result<spin_factor_blobstore::ContainerMetadata> {
@@ -148,7 +147,7 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         Ok(Box::new(InMemoryBlobContent { data }))
     }
 
-    async fn connect_stm(&self, name: &str, mut stm: tokio::io::ReadHalf<tokio::io::SimplexStream>) -> anyhow::Result<()> {
+    async fn connect_stm(&self, name: &str, mut stm: tokio::io::ReadHalf<tokio::io::SimplexStream>, finished_tx: tokio::sync::mpsc::Sender<()>) -> anyhow::Result<()> {
         use tokio::io::AsyncReadExt;
         let name = name.to_owned();
         let blobs = self.blobs.clone();
@@ -157,6 +156,7 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
             stm.read_to_end(&mut bytes).await.unwrap();
             let mut lock = blobs.write().await;
             lock.insert(name, bytes);
+            finished_tx.send(()).await.expect("should sent finish tx");
         });
         self.join_handles.write().await.push(h);
         Ok(())

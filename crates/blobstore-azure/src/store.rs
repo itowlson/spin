@@ -153,7 +153,7 @@ impl Container for AzureBlobContainer {
         Ok(Box::new(AzureBlobIncomingData::new(client, range)))
     }
 
-    async fn connect_stm(&self, name: &str, stm: tokio::io::ReadHalf<tokio::io::SimplexStream>) -> anyhow::Result<()> {
+    async fn connect_stm(&self, name: &str, stm: tokio::io::ReadHalf<tokio::io::SimplexStream>, finished_tx: tokio::sync::mpsc::Sender<()>) -> anyhow::Result<()> {
         todo!()        
     }
 
