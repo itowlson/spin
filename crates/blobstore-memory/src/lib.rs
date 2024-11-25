@@ -74,6 +74,7 @@ impl spin_factor_blobstore::ContainerManager for BlobStoreInMemory {
 struct InMemoryContainer {
     name: String,
     blobs: Arc<RwLock<HashMap<String, Vec<u8>>>>,
+    join_handles: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
     // writes_in_progress: Arc<RwLock<HashMap<String, WriteInProgress>>>,
 }
 
@@ -82,6 +83,7 @@ impl InMemoryContainer {
         Self {
             name: name.to_string(),
             blobs: Default::default(),
+            join_handles: Default::default(),
             // writes_in_progress: Default::default(),
         }
     }
@@ -101,6 +103,7 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         Ok(true)
     }
     async fn name(&self) -> String {
+        println!("JH count: {}", self.join_handles.read().await.len());
         self.name.clone()
     }
     async fn info(&self) -> anyhow::Result<spin_factor_blobstore::ContainerMetadata> {
@@ -148,26 +151,28 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         todo!()
     }
 
-    async fn get_write_stream(&self, name: &str) -> anyhow::Result<(wasmtime_wasi::pipe::AsyncWriteStream, Box<dyn spin_factor_blobstore::Finishable>)> {
-        // let (wip, stm) = WriteInProgress::new(name);
-        // self.writes_in_progress.write().await.insert(name.to_string(), wip);
-        // let fin = WriteFinisher { name: name.to_string() };
-        // Ok((stm, Box::new(fin)))
-        todo!()
-    }
+    // async fn get_write_stream(&self, name: &str) -> anyhow::Result<(wasmtime_wasi::pipe::AsyncWriteStream, Box<dyn spin_factor_blobstore::Finishable>)> {
+    //     // let (wip, stm) = WriteInProgress::new(name);
+    //     // self.writes_in_progress.write().await.insert(name.to_string(), wip);
+    //     // let fin = WriteFinisher { name: name.to_string() };
+    //     // Ok((stm, Box::new(fin)))
+    //     todo!()
+    // }
 
     async fn connect_stm(&self, name: &str, mut stm: tokio::io::ReadHalf<tokio::io::SimplexStream>) -> anyhow::Result<()> {
         use tokio::io::AsyncReadExt;
         let name = name.to_owned();
         let blobs = self.blobs.clone();
-        tokio::spawn(async move {
-            let mut bytes = vec![];
+        let h = tokio::spawn(async move {
+            let mut bytes = Vec::with_capacity(1024);
             println!("** reading stm");
             stm.read_to_end(&mut bytes).await.unwrap();
+            // stm.read_exact(&mut bytes).await.unwrap();
             println!("** read stm");
             let mut lock = blobs.write().await;
             lock.insert(name, bytes);
         });
+        self.join_handles.write().await.push(h);
         Ok(())
     }
 

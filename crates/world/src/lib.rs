@@ -3,6 +3,8 @@
 
 pub use async_trait::async_trait;
 
+pub type BoxedAny = Box<dyn std::any::Any + std::marker::Send + std::marker::Sync>;
+
 wasmtime::component::bindgen!({
     inline: r#"
     package fermyon:runtime;
@@ -39,6 +41,7 @@ wasmtime::component::bindgen!({
     trappable_imports: true,
     with: {
         "wasi:io": wasmtime_wasi::bindings::io,
+        "wasi:blobstore/types@0.2.0-draft-2024-09-01/outgoing-value": BoxedAny,
     },
 });
 

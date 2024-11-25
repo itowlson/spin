@@ -7845,6 +7845,7 @@ name = "spin-factor-blobstore"
 version = "3.1.0-pre0"
 dependencies = [
  "anyhow",
+ "bytes",
  "futures",
  "lru",
  "serde",

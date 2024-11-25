@@ -2,6 +2,8 @@ mod host;
 pub mod runtime_config;
 mod util;
 
+pub mod cackle_cackle;
+
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -21,6 +23,7 @@ pub use host::{log_error, Error, BlobStoreDispatch, Container, ContainerManager,
 pub use runtime_config::RuntimeConfig;
 use tokio::sync::RwLock;
 pub use util::DelegatingContainerManager;
+pub use cackle_cackle::write_stream::AsyncWriteStream;
 
 /// A factor that provides key-value storage.
 #[derive(Default)]
@@ -58,7 +61,7 @@ impl Factor for BlobStoreFactor {
                 wasi,
                 state.containers.clone(),
                 state.incoming_values.clone(),
-                state.outgoing_values.clone(),
+                // state.outgoing_values.clone(),
                 state.object_names.clone(),
             )
         });
