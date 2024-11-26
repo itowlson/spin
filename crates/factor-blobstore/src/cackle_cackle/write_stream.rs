@@ -32,9 +32,9 @@ struct Worker {
 }
 
 enum Job {
+    Shutdown,
     Flush,
     Write(Bytes),
-    ShutIt,
 }
 
 impl Worker {
@@ -58,7 +58,7 @@ impl Worker {
                 let state = self.state();
                 if state.error.is_some()
                     || !state.alive
-                    || (!state.flush_pending && state.write_budget > 0)
+                    || (!state.flush_pending && !state.shutdown_pending && state.write_budget > 0)
                 {
                     return;
                 }
@@ -72,7 +72,7 @@ impl Worker {
             return Err(e);
         }
 
-        if state.flush_pending || state.write_budget == 0 {
+        if state.flush_pending || state.shutdown_pending || state.write_budget == 0 {
             return Ok(0);
         }
 
@@ -88,7 +88,7 @@ impl Worker {
                 return Some(Job::Flush);
             }
             if state.shutdown_pending {
-                return Some(Job::ShutIt);
+                return Some(Job::Shutdown);
             }
         } else if let Some(bytes) = state.items.pop_front() {
             return Some(Job::Write(bytes));
@@ -102,6 +102,7 @@ impl Worker {
             state.alive = false;
             state.error = Some(e.into());
             state.flush_pending = false;
+            state.shutdown_pending = false;
         }
         self.write_ready_changed.notify_one();
     }
@@ -119,8 +120,12 @@ impl Worker {
                         tracing::debug!("worker marking flush complete");
                         self.state().flush_pending = false;
                     }
-                    Job::ShutIt => {
-                        writer.shutdown().await.unwrap();
+
+                    Job::Shutdown => {
+                        if let Err(e) = writer.shutdown().await {
+                            self.report_error(e);
+                            return;
+                        }
                         self.state().shutdown_pending = false;
                     }
 
@@ -150,7 +155,7 @@ impl Worker {
 pub struct AsyncWriteStream {
     worker: Arc<Worker>,
     join_handle: Option<wasmtime_wasi::runtime::AbortOnDropJoinHandle<()>>,
-    stop_rx_join_handle: tokio::task::AbortHandle,
+    shutdown_join_handle: Option<tokio::task::AbortHandle>,
 }
 
 impl AsyncWriteStream {
@@ -159,29 +164,55 @@ impl AsyncWriteStream {
     pub fn new<T: tokio::io::AsyncWrite + Send + Unpin + 'static>(
         write_budget: usize,
         writer: T,
-        mut stop_rx: tokio::sync::mpsc::Receiver<()>,
     ) -> Self {
         let worker = Arc::new(Worker::new(write_budget));
 
         let w = Arc::clone(&worker);
         let join_handle = wasmtime_wasi::runtime::spawn(async move { w.work(writer).await });
 
-        let wclone = worker.clone();
-        let stop_rx_join_handle = tokio::spawn(async move {
-            let r = stop_rx.recv().await;
-            if r.is_some() {
-                let mut state = wclone.state();
-                state.check_error().expect("state should not have had an error");
-        
+        AsyncWriteStream {
+            worker,
+            join_handle: Some(join_handle),
+            shutdown_join_handle: None,
+        }
+    }
+
+    /// Create a [`AsyncWriteStream`]. In order to use the [`HostOutputStream`] impl
+    /// provided by this struct, the argument must impl [`tokio::io::AsyncWrite`].
+    ///
+    /// The [`AsyncWriteStream`] created by this constructor can be shut down (that is,
+    /// graceful EOF) by sending a message through the sender side of the `shutdown_rx`
+    /// sync channel.
+    pub fn new_closeable<T: tokio::io::AsyncWrite + Send + Unpin + 'static>(
+        write_budget: usize,
+        writer: T,
+        mut shutdown_rx: tokio::sync::mpsc::Receiver<()>,
+    ) -> Self {
+        let worker = Arc::new(Worker::new(write_budget));
+
+        let w = Arc::clone(&worker);
+        let join_handle = wasmtime_wasi::runtime::spawn(async move { w.work(writer).await });
+
+        let w_clone = worker.clone();
+        let shutdown_join_handle = tokio::spawn(async move {
+            let shutdown_msg = shutdown_rx.recv().await;
+            if shutdown_msg.is_some() {
+                let mut state = w_clone.state();
+                if state.check_error().is_err() {
+                    // The stream is already failing - no point shutting it down.
+                    return;
+                }
+
                 state.shutdown_pending = true;
-                wclone.new_work.notify_one();
+                w_clone.new_work.notify_one();
             }
-        }).abort_handle();
+        })
+        .abort_handle();
 
         AsyncWriteStream {
             worker,
             join_handle: Some(join_handle),
-            stop_rx_join_handle,
+            shutdown_join_handle: Some(shutdown_join_handle),
         }
     }
 }
@@ -222,7 +253,9 @@ impl HostOutputStream for AsyncWriteStream {
     }
 
     async fn cancel(&mut self) {
-        self.stop_rx_join_handle.abort();
+        if let Some(handle) = self.shutdown_join_handle.take() {
+            handle.abort();
+        };
         match self.join_handle.take() {
             Some(task) => _ = cancel(task).await,
             None => {}
@@ -235,7 +268,6 @@ impl Subscribe for AsyncWriteStream {
         self.worker.ready().await;
     }
 }
-
 
 async fn cancel(mut handle: wasmtime_wasi::runtime::AbortOnDropJoinHandle<()>) -> Option<()> {
     use std::ops::DerefMut;

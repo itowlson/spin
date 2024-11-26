@@ -82,7 +82,7 @@ impl OutgoingValue {
 
         self.stop_tx = Some(stop_tx);
 
-        let stm = crate::AsyncWriteStream::new(OUTGOING_VALUE_BUF_SIZE, write, stop_rx);
+        let stm = crate::AsyncWriteStream::new_closeable(OUTGOING_VALUE_BUF_SIZE, write, stop_rx);
         Ok(stm)
     }
 

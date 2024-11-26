@@ -74,8 +74,6 @@ impl spin_factor_blobstore::ContainerManager for BlobStoreInMemory {
 struct InMemoryContainer {
     name: String,
     blobs: Arc<RwLock<HashMap<String, Vec<u8>>>>,
-    join_handles: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
-    // writes_in_progress: Arc<RwLock<HashMap<String, WriteInProgress>>>,
 }
 
 impl InMemoryContainer {
@@ -83,8 +81,6 @@ impl InMemoryContainer {
         Self {
             name: name.to_string(),
             blobs: Default::default(),
-            join_handles: Default::default(),
-            // writes_in_progress: Default::default(),
         }
     }
 
@@ -151,14 +147,13 @@ impl spin_factor_blobstore::Container for InMemoryContainer {
         use tokio::io::AsyncReadExt;
         let name = name.to_owned();
         let blobs = self.blobs.clone();
-        let h = tokio::spawn(async move {
+        tokio::spawn(async move {
             let mut bytes = Vec::with_capacity(1024);
             stm.read_to_end(&mut bytes).await.unwrap();
             let mut lock = blobs.write().await;
             lock.insert(name, bytes);
             finished_tx.send(()).await.expect("should sent finish tx");
         });
-        self.join_handles.write().await.push(h);
         Ok(())
     }
 
