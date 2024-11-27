@@ -48,9 +48,7 @@ impl BlobStoreInMemory {
 
 /// The serialized runtime configuration for the in memory blob store.
 #[derive(Deserialize, Serialize)]
-pub struct MemoryBlobStoreRuntimeConfig {
-    ignored: Option<String>,
-}
+pub struct MemoryBlobStoreRuntimeConfig {}
 
 #[async_trait]
 impl spin_factor_blobstore::ContainerManager for BlobStoreInMemory {
@@ -196,21 +194,21 @@ impl spin_factor_blobstore::ObjectNames for InMemoryBlobNames {
     async fn read(&mut self, len: u64) -> anyhow::Result<(Vec<String>, bool)> {
         let len = len.try_into().unwrap();
         if len > self.names.len() {
-            Ok((self.names.drain(..).collect(), false))
+            Ok((self.names.drain(..).collect(), true))
         } else {
             let taken = self.names.drain(0..len).collect();
-            Ok((taken, !self.names.is_empty()))
+            Ok((taken, self.names.is_empty()))
         }
     }
 
     async fn skip(&mut self, num: u64) -> anyhow::Result<(u64,bool)> {
         let len = num.try_into().unwrap();
-        let (count, more) = if len > self.names.len() {
-            (self.names.drain(..).len(), false)
+        let (count, at_end) = if len > self.names.len() {
+            (self.names.drain(..).len(), true)
         } else {
             let taken = self.names.drain(0..len).len();
-            (taken, !self.names.is_empty())
+            (taken, self.names.is_empty())
         };
-        Ok((count.try_into().unwrap(), more))
+        Ok((count.try_into().unwrap(), at_end))
     }
 }
