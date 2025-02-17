@@ -171,7 +171,6 @@ impl<'a> BlobStoreDispatch<'a> {
     }
 }
 
-#[async_trait]
 impl<'a> wb::Host for BlobStoreDispatch<'a> {
     async fn create_container(&mut self, _name: String) -> Result<Resource<wbc::Container>, String> {
         Err("This version of Spin does not support creating containers".to_owned())
@@ -209,14 +208,12 @@ impl<'a> wb::Host for BlobStoreDispatch<'a> {
     }
 }
 
-#[async_trait]
 impl<'a> wbt::Host for BlobStoreDispatch<'a> {
     fn convert_error(&mut self, error: String) -> anyhow::Result<String> {
         Ok(error)
     }
 }
 
-#[async_trait]
 impl<'a> wbt::HostIncomingValue for BlobStoreDispatch<'a> {
     async fn incoming_value_consume_sync(&mut self, self_: Resource<wbt::IncomingValue>) -> Result<Vec<u8>, String> {
         let mut incoming = self.take_incoming_value(self_).await?;
@@ -243,7 +240,6 @@ impl<'a> wbt::HostIncomingValue for BlobStoreDispatch<'a> {
     }
 }
 
-#[async_trait]
 impl<'a> wbt::HostOutgoingValue for BlobStoreDispatch<'a> {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<wbt::OutgoingValue>> {
         let outgoing_value = OutgoingValue::new();
@@ -287,10 +283,8 @@ impl<'a> wbt::HostOutgoingValue for BlobStoreDispatch<'a> {
 }
 
 // TODO: TBD if these belong on BSD or some other struct (like the one that maps to a Container resource JUST SAYIN)
-#[async_trait]
 impl<'a> wbc::Host for BlobStoreDispatch<'a> {}
 
-#[async_trait]
 impl<'a> wbc::HostContainer for BlobStoreDispatch<'a> {
     async fn name(&mut self, self_: Resource<wbc::Container>) -> Result<String, String> {
         let lock = self.containers.read().await;
@@ -390,7 +384,6 @@ impl<'a> wbc::HostContainer for BlobStoreDispatch<'a> {
     }
 }
 
-#[async_trait]
 impl<'a> wbc::HostStreamObjectNames for BlobStoreDispatch<'a> {
     async fn read_stream_object_names(&mut self, self_: Resource<wbc::StreamObjectNames>, len: u64) -> Result<(Vec<String>,bool), String> {
         let mut lock = self.object_names.write().await;
