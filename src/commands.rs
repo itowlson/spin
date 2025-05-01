@@ -8,6 +8,8 @@ pub mod cloud;
 pub mod doctor;
 /// Commands for external subcommands (i.e. plugins)
 pub mod external;
+/// Commands for granting resource permissions to Spin components.
+pub mod grant;
 /// Commands for Spin maintenance tasks.
 pub mod maintenance;
 /// Command for creating a new application.

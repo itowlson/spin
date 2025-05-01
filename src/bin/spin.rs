@@ -8,6 +8,7 @@ use spin_cli::commands::{
     cloud::{DeployCommand, LoginCommand},
     doctor::DoctorCommand,
     external::execute_external_subcommand,
+    grant::GrantCommand,
     new::{AddCommand, NewCommand},
     plugins::PluginCommands,
     registry::RegistryCommands,
@@ -136,6 +137,7 @@ enum SpinApp {
     #[clap(alias = "w")]
     Watch(WatchCommand),
     Doctor(DoctorCommand),
+    Grant(GrantCommand),
     #[clap(subcommand, hide = true)]
     Maintenance(MaintenanceCommands),
 }
@@ -167,6 +169,7 @@ impl SpinApp {
             Self::External(cmd) => execute_external_subcommand(cmd, app).await,
             Self::Watch(cmd) => cmd.run().await,
             Self::Doctor(cmd) => cmd.run().await,
+            Self::Grant(cmd) => cmd.run().await,
             Self::Maintenance(cmd) => cmd.run(SpinApp::command()).await,
         }
     }
