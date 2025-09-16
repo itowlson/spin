@@ -1,19 +1,9 @@
-package spin:up@3.5.0;
+package spin:up@3.4.0;
 
 /// The full world of a guest targeting an http-trigger
 world http-trigger {
   include platform;
-  export wasi:http/handler@0.3.0-rc-2025-08-15;
-}
-
-interface next {
-  use wasi:http/types@0.3.0-rc-2025-08-15.{request, response, error-code};
-  handle: async func(request: request) -> result<response, error-code>;
-}
-
-world http-middleware {
-  include http-trigger;
-  import next;
+  export wasi:http/incoming-handler@0.2.0;
 }
 
 /// The imports needed for a guest to run on a Spin host
