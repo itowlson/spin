@@ -395,6 +395,9 @@ pub struct Component {
     /// Learn more: https://spinframework.dev/writing-apps#using-component-dependencies
     #[serde(default, skip_serializing_if = "ComponentDependencies::is_empty")]
     pub dependencies: ComponentDependencies,
+    /// TODO:
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pipeline: Vec<ComponentDependency>,
 }
 
 /// Component dependencies
@@ -765,6 +768,7 @@ mod tests {
             tool: Map::new(),
             dependencies_inherit_configuration: false,
             dependencies: Default::default(),
+            pipeline: Default::default(),
         }
     }
 
