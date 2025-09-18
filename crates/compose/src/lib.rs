@@ -52,21 +52,32 @@ pub enum InheritConfiguration {
 #[async_trait::async_trait]
 pub trait ComponentLike {
     type Dependency: DependencyLike;
+    type Source;
 
     fn dependencies(
         &self,
     ) -> impl std::iter::ExactSizeIterator<Item = (&DependencyName, &Self::Dependency)>;
+    fn pipeline(
+        &self,
+    ) -> impl std::iter::ExactSizeIterator<Item = &Self::Source>;
     fn id(&self) -> &str;
 }
 
 #[async_trait::async_trait]
 impl ComponentLike for spin_app::locked::LockedComponent {
     type Dependency = spin_app::locked::LockedComponentDependency;
+    type Source = spin_app::locked::LockedComponentDependency;
 
     fn dependencies(
         &self,
     ) -> impl std::iter::ExactSizeIterator<Item = (&DependencyName, &Self::Dependency)> {
         self.dependencies.iter()
+    }
+
+    fn pipeline(
+        &self,
+    ) -> impl std::iter::ExactSizeIterator<Item = &Self::Source> {
+        self.pipeline.iter()
     }
 
     fn id(&self) -> &str {
@@ -91,10 +102,12 @@ impl DependencyLike for spin_app::locked::LockedComponentDependency {
 /// This trait is used to load component source code from a locked component source across various embdeddings.
 #[async_trait::async_trait]
 pub trait ComponentSourceLoader {
-    type Component: ComponentLike<Dependency = Self::Dependency>;
+    type Component: ComponentLike<Dependency = Self::Dependency, Source = Self::Source>;
     type Dependency: DependencyLike;
+    type Source;
     async fn load_component_source(&self, source: &Self::Component) -> anyhow::Result<Vec<u8>>;
     async fn load_dependency_source(&self, source: &Self::Dependency) -> anyhow::Result<Vec<u8>>;
+    async fn load_source(&self, source: &Self::Source) -> anyhow::Result<Vec<u8>>;
 }
 
 /// A ComponentSourceLoader that loads component sources from the filesystem.
@@ -104,12 +117,17 @@ pub struct ComponentSourceLoaderFs;
 impl ComponentSourceLoader for ComponentSourceLoaderFs {
     type Component = spin_app::locked::LockedComponent;
     type Dependency = spin_app::locked::LockedComponentDependency;
+    type Source = spin_app::locked::LockedComponentDependency;
 
     async fn load_component_source(&self, source: &Self::Component) -> anyhow::Result<Vec<u8>> {
         Self::load_from_locked_source(&source.source).await
     }
 
     async fn load_dependency_source(&self, source: &Self::Dependency) -> anyhow::Result<Vec<u8>> {
+        Self::load_from_locked_source(&source.source).await
+    }
+
+    async fn load_source(&self, source: &Self::Source) -> anyhow::Result<Vec<u8>> {
         Self::load_from_locked_source(&source.source).await
     }
 }
@@ -203,32 +221,143 @@ impl<'a, L: ComponentSourceLoader> Composer<'a, L> {
             .await
             .map_err(ComposeError::PrepareError)?;
 
-        if component.dependencies().len() == 0 {
-            return Ok(source);
-        }
+        let depped_source = if component.dependencies().len() == 0 {
+            source
+        } else {
 
-        let (world_id, instantiation_id) = self
-            .register_package(component.id(), None, source)
-            .map_err(ComposeError::PrepareError)?;
+            let (world_id, instantiation_id) = self
+                .register_package(component.id(), None, source)
+                .map_err(ComposeError::PrepareError)?;
 
-        let prepared = self.prepare_dependencies(world_id, component).await?;
+            let prepared = self.prepare_dependencies(world_id, component).await?;
 
-        let arguments = self
-            .build_instantiation_arguments(world_id, prepared)
-            .await?;
+            let arguments = self
+                .build_instantiation_arguments(world_id, prepared)
+                .await?;
 
-        for (argument_name, argument) in arguments {
+            for (argument_name, argument) in arguments {
+                self.graph
+                    .set_instantiation_argument(instantiation_id, &argument_name, argument)
+                    .map_err(|e| ComposeError::PrepareError(e.into()))?;
+            }
+
+            self.export_dependents_exports(world_id, instantiation_id)
+                .map_err(ComposeError::PrepareError)?;
+
             self.graph
-                .set_instantiation_argument(instantiation_id, &argument_name, argument)
-                .map_err(|e| ComposeError::PrepareError(e.into()))?;
-        }
+                .encode(Default::default())
+                .map_err(|e| ComposeError::EncodeError(e.into()))?
+        };
 
-        self.export_dependents_exports(world_id, instantiation_id)
-            .map_err(ComposeError::PrepareError)?;
+        let piped_depped_source = if component.pipeline().len() == 0 {
+            depped_source
+        } else {
+            let mut pipey_blobs = vec![];
+            for p in component.pipeline() {
+                pipey_blobs.push(self.loader.load_source(p).await.unwrap());
+            }
 
-        self.graph
-            .encode(Default::default())
-            .map_err(|e| ComposeError::EncodeError(e.into()))
+            let td = tempfile::tempdir().unwrap();
+            let mut pipey_blob_paths = vec![];
+            for (pbindex, pb) in pipey_blobs.iter().enumerate() {
+                let pb_path = td.path().join(format!("pipey-blob-idx{pbindex}.wasm"));
+                std::fs::write(&pb_path, pb).unwrap();
+                pipey_blob_paths.push(pb_path);
+            }
+            let final_path = td.path().join("final-final-v2.wasm");
+            std::fs::write(&final_path, depped_source).unwrap();
+            pipey_blob_paths.push(final_path);
+
+            let mut config = wasm_compose::config::Config::default();
+            config.skip_validation = true;
+            // config.definitions = pipey_blob_paths.iter().skip(1).map(|p| p.clone()).collect();
+            // config.definitions.push(final_path);
+            config.dependencies = pipey_blob_paths.iter().skip(1).enumerate().map(|(i, p)| (format!("pipe{i}"), wasm_compose::config::Dependency { path: p.clone() })).collect();
+
+            config.instantiations.insert(wasm_compose::composer::ROOT_COMPONENT_NAME.to_owned(), wasm_compose::config::Instantiation {
+                dependency: None,
+                arguments: [("spin:up/next@3.5.0".to_owned(), wasm_compose::config::InstantiationArg { instance: "pipe0inst".to_owned(), export: Some("wasi:http/handler@0.3.0-rc-2025-08-15".to_owned()) })].into(),
+            });
+
+            //let mut curr = wasm_compose::composer::ROOT_COMPONENT_NAME.to_owned();
+            let last = pipey_blob_paths.iter().skip(1).enumerate().last().unwrap().0;
+
+            for (i, _p) in pipey_blob_paths.iter().skip(1).enumerate() {
+                let dep_ref = format!("pipe{i}");
+                let inst_ref = format!("{dep_ref}inst");
+                let instarg = wasm_compose::config::InstantiationArg {
+                    instance: format!("pipe{}inst", i + 1),
+                    export: Some("wasi:http/handler@0.3.0-rc-2025-08-15".to_owned()),
+                };
+                let inst = if i == last {
+                    wasm_compose::config::Instantiation {
+                        dependency: Some(dep_ref.clone()),
+                        arguments: Default::default(),
+                    }
+                } else {
+                    wasm_compose::config::Instantiation {
+                        dependency: Some(dep_ref.clone()),
+                        arguments: [("spin:up/next@3.5.0".to_owned(), instarg)].into_iter().collect(),
+                    }
+                };
+                config.instantiations.insert(inst_ref.clone(), inst);
+                //curr = inst_ref;
+            }
+
+            eprintln!("{config:?}");
+
+            let composer = wasm_compose::composer::ComponentComposer::new(&pipey_blob_paths[0], &config);
+            let compo = composer.compose().unwrap();
+
+            std::fs::write("./COMPYWOMPY.wasm", &compo).unwrap();
+
+            compo
+
+            // let mut current = depped_source;
+
+            // let mut feats = wasmparser::WasmFeatures::default();
+            // feats.insert(wasmparser::WasmFeatures::CM_ASYNC);
+
+            // loop {
+            //     let Some(deppo) = pipey_blobs.pop() else {
+            //         break;
+            //     };
+
+            //     let mut validator1 = wasmparser::Validator::new_with_features(feats);
+
+            //     // compose pipester with current by plugging pipester's `next` import into current's `wasi:http/handle` export
+            //     // I think we can't yet use wac for this unfortunately
+            //     let mut gr = wasm_compose::graph::CompositionGraph::new();
+            //     let cur = wasm_compose::graph::Component::from_bytes(&mut validator1, "arse", &current).unwrap();
+            //     cur.exports().for_each(|t| println!("<< EXPORT: {}", t.1));
+            //     let cur_http_export = cur.exports().find(|t| t.1.contains("wasi:http/handler")).unwrap().0;
+            //     let id_cur = gr.add_component(cur).unwrap();
+            //     let cur_inst = gr.instantiate(id_cur).unwrap();
+
+            //     // let mut validator2 = wasmparser::Validator::new_with_features(feats);
+
+            //     let mw = wasm_compose::graph::Component::from_bytes(&mut validator1, "biscuit", deppo).unwrap();
+            //     mw.imports().for_each(|t| println!(">> IMPORT: {}", t.1));
+            //     let mw_import = mw.imports().find(|t| t.1.contains("spin:up/next")).unwrap().0;
+            //     let id_mw = gr.add_component(mw).unwrap();
+            //     let mw_inst = gr.instantiate(id_mw).unwrap();
+
+            //     println!("CONNECKA");
+            //     gr.connect(cur_inst, Some(cur_http_export), mw_inst, mw_import).unwrap();
+
+            //     println!("ENCODAH");
+            //     let enc_opts = wasm_compose::graph::EncodeOptions {
+            //         validate: false,
+            //         ..Default::default()
+            //     };
+            //     current = gr.encode(enc_opts).map_err(|e| ComposeError::EncodeError(e))?;
+            //     println!("ENCODED WOO");
+            // }
+
+            // current
+        };
+
+        Ok(piped_depped_source)
     }
 
     fn new(loader: &'a L) -> Self {

@@ -17,9 +17,12 @@ spin-app = { path = "../app" }
 spin-common = { path = "../common" }
 spin-componentize = { path = "../componentize" }
 spin-serde = { path = "../serde" }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 wac-graph = "0.8"
+wasm-compose = { version = "0.239" }
+wasmparser = "0.239"
 
 [lints]
 workspace = true

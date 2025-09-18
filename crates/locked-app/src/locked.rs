@@ -240,6 +240,9 @@ pub struct LockedComponent {
     /// Component dependencies
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dependencies: BTreeMap<DependencyName, LockedComponentDependency>,
+    /// Component middleware
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pipeline: Vec<LockedComponentDependency>,
     /// Host requirements
     #[serde(
         default,

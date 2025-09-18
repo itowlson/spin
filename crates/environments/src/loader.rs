@@ -72,11 +72,12 @@ impl ApplicationToValidate {
             .component
             .as_ref()
             .ok_or_else(|| anyhow!("No component specified for trigger {}", trigger.id))?;
-        let (id, source, dependencies, service_chaining) = match component_spec {
+        let (id, source, dependencies, pipeline, service_chaining) = match component_spec {
             spin_manifest::schema::v2::ComponentSpec::Inline(c) => (
                 trigger.id.as_str(),
                 &c.source,
                 &c.dependencies,
+                &c.pipeline,
                 spin_loader::requires_service_chaining(c),
             ),
             spin_manifest::schema::v2::ComponentSpec::Reference(r) => {
@@ -91,6 +92,7 @@ impl ApplicationToValidate {
                     id,
                     &component.source,
                     &component.dependencies,
+                    &component.pipeline,
                     spin_loader::requires_service_chaining(component),
                 )
             }
@@ -100,6 +102,7 @@ impl ApplicationToValidate {
             id,
             source,
             dependencies: WrappedComponentDependencies::new(dependencies),
+            pipeline,
             requires_service_chaining: service_chaining,
         })
     }
@@ -166,6 +169,7 @@ struct ComponentSource<'a> {
     id: &'a str,
     source: &'a spin_manifest::schema::v2::ComponentSource,
     dependencies: WrappedComponentDependencies,
+    pipeline: &'a [spin_manifest::schema::v2::ComponentDependency],
     requires_service_chaining: bool,
 }
 
@@ -183,6 +187,8 @@ impl<'a> ComponentSourceLoader<'a> {
 impl<'a> spin_compose::ComponentSourceLoader for ComponentSourceLoader<'a> {
     type Component = ComponentSource<'a>;
     type Dependency = WrappedComponentDependency;
+    type Source = spin_manifest::schema::v2::ComponentDependency;
+
     async fn load_component_source(&self, source: &Self::Component) -> anyhow::Result<Vec<u8>> {
         let path = self
             .wasm_loader
@@ -200,6 +206,19 @@ impl<'a> spin_compose::ComponentSourceLoader for ComponentSourceLoader<'a> {
         let (path, _) = self
             .wasm_loader
             .load_component_dependency(&source.name, &source.dependency)
+            .await?;
+        let bytes = tokio::fs::read(&path)
+            .await
+            .with_context(|| format!("reading {}", quoted_path(&path)))?;
+        let component = spin_componentize::componentize_if_necessary(&bytes)
+            .with_context(|| format!("componentizing {}", quoted_path(&path)))?;
+        Ok(component.into())
+    }
+
+    async fn load_source(&self, source: &Self::Source) -> anyhow::Result<Vec<u8>> {
+        let (path, _) = self
+            .wasm_loader
+            .load_component_dependency(&spin_serde::DependencyName::Plain("arse-biscuit".to_string().try_into().unwrap()), source)
             .await?;
         let bytes = tokio::fs::read(&path)
             .await
@@ -242,14 +261,22 @@ impl WrappedComponentDependencies {
 }
 
 #[async_trait::async_trait]
-impl spin_compose::ComponentLike for ComponentSource<'_> {
+impl<'a> spin_compose::ComponentLike for ComponentSource<'a> {
     type Dependency = WrappedComponentDependency;
+    type Source = spin_manifest::schema::v2::ComponentDependency;
 
     fn dependencies(
         &self,
     ) -> impl std::iter::ExactSizeIterator<Item = (&spin_serde::DependencyName, &Self::Dependency)>
     {
         self.dependencies.dependencies.iter()
+    }
+
+    fn pipeline(
+        &self,
+    ) -> impl std::iter::ExactSizeIterator<Item = &Self::Source>
+    {
+        self.pipeline.iter()
     }
 
     fn id(&self) -> &str {

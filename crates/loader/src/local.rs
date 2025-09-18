@@ -177,6 +177,13 @@ impl LocalLoader {
             )
             .await?;
 
+        let mut pipeline = vec![];
+        for (index, dep) in component.pipeline.iter().enumerate() {
+            let name = format!("c-{}-pipeline-entry-index{index}", id);
+            let dd = self.load_component_dependency(component.dependencies_inherit_configuration, DependencyName::Plain(name.try_into().unwrap()), dep.clone()).await?;
+            pipeline.push(dd);
+        }
+
         let env = component.environment.into_iter().collect();
 
         let files = if component.files.is_empty() {
@@ -235,6 +242,7 @@ impl LocalLoader {
             files,
             config,
             dependencies,
+            pipeline,
             host_requirements,
         })
     }
