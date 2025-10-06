@@ -276,7 +276,7 @@ impl<'a, L: ComponentSourceLoader> Composer<'a, L> {
 
             config.instantiations.insert(wasm_compose::composer::ROOT_COMPONENT_NAME.to_owned(), wasm_compose::config::Instantiation {
                 dependency: None,
-                arguments: [("spin:up/next@3.5.0".to_owned(), wasm_compose::config::InstantiationArg { instance: "pipe0inst".to_owned(), export: Some("wasi:http/handler@0.3.0-rc-2025-08-15".to_owned()) })].into(),
+                arguments: [("spin:up/next@3.5.0".to_owned(), wasm_compose::config::InstantiationArg { instance: "pipe0inst".to_owned(), export: Some("wasi:http/handler@0.3.0-rc-2025-09-16".to_owned()) })].into(),
             });
 
             //let mut curr = wasm_compose::composer::ROOT_COMPONENT_NAME.to_owned();
@@ -287,7 +287,7 @@ impl<'a, L: ComponentSourceLoader> Composer<'a, L> {
                 let inst_ref = format!("{dep_ref}inst");
                 let instarg = wasm_compose::config::InstantiationArg {
                     instance: format!("pipe{}inst", i + 1),
-                    export: Some("wasi:http/handler@0.3.0-rc-2025-08-15".to_owned()),
+                    export: Some("wasi:http/handler@0.3.0-rc-2025-09-16".to_owned()),
                 };
                 let inst = if i == last {
                     wasm_compose::config::Instantiation {

@@ -34,7 +34,7 @@ const WASI_HTTP_EXPORT_2023_10_18: &str = "wasi:http/incoming-handler@0.2.0-rc-2
 const WASI_HTTP_EXPORT_2023_11_10: &str = "wasi:http/incoming-handler@0.2.0-rc-2023-11-10";
 /// The `incoming-handler` export prefix for all `wasi:http` 0.2 versions
 const WASI_HTTP_EXPORT_0_2_PREFIX: &str = "wasi:http/incoming-handler@0.2";
-/// The `handler` export `wasi:http` version 0.3.0-rc-2025-08-15
+/// The `handler` export `wasi:http` version 0.3.0-rc-2025-09-16
 const WASI_HTTP_EXPORT_0_3_0_RC_2025_09_16: &str = "wasi:http/handler@0.3.0-rc-2025-09-16";
 /// The `inbound-http` export for `fermyon:spin`
 const SPIN_HTTP_EXPORT: &str = "fermyon:spin/inbound-http";
