@@ -33,6 +33,9 @@ jobs:
           username: spinframeworkbot
           password: ${{ secrets.SPIN_WIT_PAT }}
 
+      - name: SHOW ME THE CREDENTIAL HELPER
+        run: cat $HOME/.docker/config.json
+        
       - name: Build and publish WIT package
         shell: bash
         run: ./scripts/build-and-publish-wit.sh
