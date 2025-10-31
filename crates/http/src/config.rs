@@ -7,6 +7,8 @@ use spin_http_routes::HttpTriggerRouteConfig;
 pub struct HttpTriggerConfig {
     /// Component ID to invoke
     pub component: Option<String>,
+    /// LIES LIES LIES
+    pub components: Option<std::collections::HashMap<String, Vec<String>>>,
     /// Static response to send
     pub static_response: Option<StaticResponse>,
     /// HTTP route the component will be invoked for
@@ -21,7 +23,15 @@ impl HttpTriggerConfig {
         match (&self.component, &self.static_response) {
             (None, None) => Err(anyhow::anyhow!("Triggers must specify either component or static_response - {trigger_id} has neither")),
             (Some(_), Some(_)) => Err(anyhow::anyhow!("Triggers must specify either component or static_response - {trigger_id} has both")),
-            (Some(c), None) => Ok(crate::routes::TriggerLookupKey::Component(c.to_string())),
+            (Some(c), None) => {
+                let complications = self.components.clone().unwrap_or_default();
+                if complications.is_empty() {
+                    Ok(crate::routes::TriggerLookupKey::Component(c.to_string()))
+                } else {
+                    let complications = complications.into_iter().collect();
+                    Ok(spin_http_routes::TriggerLookupKey::ComplicatedComponent { primary: c.to_string(), complications })
+                }
+            }
             (None, Some(_)) => Ok(crate::routes::TriggerLookupKey::Trigger(trigger_id.to_string())),
         }
     }

@@ -318,11 +318,19 @@ impl<'a> AppTrigger<'a> {
             ))
         })
     }
+
+    /// oh ffs
+    pub fn components(&self) -> Result<std::collections::HashMap<String, Vec<String>>> {
+        let common_config: CommonTriggerConfig = self.typed_config()?;
+        Ok(common_config.components)
+    }
 }
 
 #[derive(Deserialize)]
 struct CommonTriggerConfig {
     component: Option<String>,
+    #[serde(default)]
+    components: std::collections::HashMap<String, Vec<String>>,
 }
 
 /// Scrubs the locked app to only contain the given list of components

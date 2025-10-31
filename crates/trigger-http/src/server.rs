@@ -22,7 +22,7 @@ use hyper_util::{
 };
 use spin_app::{APP_DESCRIPTION_KEY, APP_NAME_KEY};
 use spin_factor_outbound_http::{OutboundHttpFactor, SelfRequestOrigin};
-use spin_factors::RuntimeFactors;
+use spin_factors::{HandlerLookupKey, RuntimeFactors};
 use spin_http::{
     app_info::AppInfo,
     body,
@@ -125,10 +125,18 @@ impl<F: RuntimeFactors> HttpServer<F> {
                 spin_http::routes::TriggerLookupKey::Component(component) => Some(
                     Self::handler_type_for_component(
                         &trigger_app,
-                        component,
+                        &spin_factors::HandlerLookupKey::Simple(component.clone()),
                         &trigger_config.executor,
                     )
                     .map(|ht| (component.clone(), ht)),
+                ),
+                spin_http::routes::TriggerLookupKey::ComplicatedComponent { primary, complications } => Some(
+                    Self::handler_type_for_component(
+                        &trigger_app,
+                        &spin_factors::HandlerLookupKey::TerrifyinglyComplicated { component: primary.clone(), complications: complications.clone() },
+                        &trigger_config.executor,
+                    )
+                    .map(|ht| (primary.clone(), ht)), // TODO: should this preserve the whole key?
                 ),
                 spin_http::routes::TriggerLookupKey::Trigger(_) => None,
             })
@@ -146,7 +154,7 @@ impl<F: RuntimeFactors> HttpServer<F> {
 
     fn handler_type_for_component(
         trigger_app: &TriggerApp<F>,
-        component_id: &str,
+        component_id: &spin_factors::HandlerLookupKey,
         executor: &Option<HttpExecutorType>,
     ) -> anyhow::Result<HandlerType> {
         let pre = trigger_app.get_instance_pre(component_id)?;
@@ -159,7 +167,7 @@ impl<F: RuntimeFactors> HttpServer<F> {
             Some(HttpExecutorType::Wagi(wagi_config)) => {
                 anyhow::ensure!(
                     wagi_config.entrypoint == "_start",
-                    "Wagi component '{component_id}' cannot use deprecated 'entrypoint' field"
+                    "Wagi component '{}' cannot use deprecated 'entrypoint' field", component_id.primary_id()
                 );
                 HandlerType::Wagi(
                     CommandIndices::new(pre)
@@ -319,13 +327,18 @@ impl<F: RuntimeFactors> HttpServer<F> {
             .with_context(|| format!("unknown routing destination '{lookup_key}'"))?;
 
         match (&trigger_config.component, &trigger_config.static_response) {
-            (Some(component), None) => {
+            (Some(_), None) => {
+                let hlk = match lookup_key {
+                    spin_http::routes::TriggerLookupKey::Component(c) => HandlerLookupKey::Simple(c.clone()),
+                    spin_http::routes::TriggerLookupKey::ComplicatedComponent { primary, complications } => HandlerLookupKey::TerrifyinglyComplicated { component: primary.clone(), complications: complications.clone() },
+                    spin_http::routes::TriggerLookupKey::Trigger(_) => panic!(),
+                };
                 self.respond_wasm_component(
                     req,
                     route_match,
                     server_scheme,
                     client_addr,
-                    component,
+                    &hlk,
                     &trigger_config.executor,
                 )
                 .await
@@ -345,7 +358,7 @@ impl<F: RuntimeFactors> HttpServer<F> {
         route_match: RouteMatch<'_, '_>,
         server_scheme: Scheme,
         client_addr: SocketAddr,
-        component_id: &str,
+        component_id: &HandlerLookupKey,
         executor: &Option<HttpExecutorType>,
     ) -> anyhow::Result<Response<Body>> {
         let mut instance_builder = self.trigger_app.prepare(component_id)?;
@@ -366,7 +379,7 @@ impl<F: RuntimeFactors> HttpServer<F> {
         // Prepare HTTP executor
         let handler_type = self
             .component_handler_types
-            .get(component_id)
+            .get(component_id.primary_id())
             .with_context(|| format!("unknown component ID {component_id:?}"))?;
         let executor = executor.as_ref().unwrap_or(&HttpExecutorType::Http);
 
