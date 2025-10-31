@@ -1,11 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Context;
-use spin_app::{App, AppComponent};
+use spin_app::{App, AppComponent, locked::LockedComponentSource};
 use spin_core::{async_trait, Component};
 use spin_factors::{
-    AsInstanceState, ConfiguredApp, Factor, HasInstanceBuilder, RuntimeFactors,
-    RuntimeFactorsInstanceState,
+    AsInstanceState, ConfiguredApp, Factor, HandlerLookupKey, HasInstanceBuilder, RuntimeFactors, RuntimeFactorsInstanceState
 };
 
 /// A FactorsExecutor manages execution of a Spin app.
@@ -64,22 +63,49 @@ impl<T: RuntimeFactors, U: Send + 'static> FactorsExecutor<T, U> {
             hooks.configure_app(&configured_app).await?;
         }
 
-        let components = match trigger_type {
-            Some(trigger_type) => configured_app
-                .app()
-                .triggers_with_type(trigger_type)
-                .filter_map(|t| t.component().ok())
-                .collect::<Vec<_>>(),
-            None => configured_app.app().components().collect(),
-        };
-        let mut component_instance_pres = HashMap::with_capacity(components.len());
+        let mut component_instance_pres = HashMap::with_capacity(configured_app.app().components().len());
 
-        for component in components {
-            let instance_pre = component_loader
-                .load_instance_pre(&self.core_engine, &component)
-                .await?;
-            component_instance_pres.insert(component.id().to_string(), instance_pre);
+        for trigger in configured_app.app().triggers_with_type(trigger_type.unwrap()) {  // todo no unwrap
+            if let Ok(component) = trigger.component() {
+                let component_id = component.id().to_string();
+                let complications = trigger.components()?;
+                let (lookup_key, complications) = if complications.is_empty() {
+                    (HandlerLookupKey::Simple(component_id), Default::default())
+                } else {
+                    let complications = complications.into_iter().map(|(k, v)| (k, v)).collect::<Vec<_>>();
+                    let complications_map = complications
+                        .iter()
+                        .map(|(k, v)| (
+                            k.clone(),
+                            v.iter().map(|cid| configured_app.app().get_component(cid).unwrap().source().clone()).collect()
+                        ))
+                        .collect();
+                    (HandlerLookupKey::TerrifyinglyComplicated { component: component_id, complications }, complications_map)
+                };
+
+                let instance_pre = component_loader
+                    .load_instance_pre(&self.core_engine, &component, &complications)
+                    .await?;
+                component_instance_pres.insert(lookup_key, instance_pre);
+            }
         }
+
+        // let components = match trigger_type {
+        //     Some(trigger_type) => configured_app
+        //         .app()
+        //         .triggers_with_type(trigger_type)
+        //         .filter_map(|t| t.component().ok())
+        //         .collect::<Vec<_>>(),
+        //     None => configured_app.app().components().collect(),
+        // };
+        // let mut component_instance_pres = HashMap::with_capacity(components.len());
+
+        // for component in components {
+        //     let instance_pre = component_loader
+        //         .load_instance_pre(&self.core_engine, &component, &complications)
+        //         .await?;
+        //     component_instance_pres.insert(component.id().to_string(), instance_pre);
+        // }
 
         Ok(FactorsExecutorApp {
             executor: self.clone(),
@@ -115,6 +141,7 @@ pub trait ComponentLoader<T: RuntimeFactors, U>: Sync {
         &self,
         engine: &spin_core::wasmtime::Engine,
         component: &AppComponent,
+        complications: &HashMap<String, Vec<LockedComponentSource>>,
     ) -> anyhow::Result<Component>;
 
     /// Loads [`InstancePre`] for the given [`AppComponent`].
@@ -122,8 +149,9 @@ pub trait ComponentLoader<T: RuntimeFactors, U>: Sync {
         &self,
         engine: &spin_core::Engine<InstanceState<T::InstanceState, U>>,
         component: &AppComponent,
+        complications: &HashMap<String, Vec<LockedComponentSource>>,
     ) -> anyhow::Result<spin_core::InstancePre<InstanceState<T::InstanceState, U>>> {
-        let component = self.load_component(engine.as_ref(), component).await?;
+        let component = self.load_component(engine.as_ref(), component, complications).await?;
         engine.instantiate_pre(&component)
     }
 }
@@ -139,7 +167,7 @@ pub struct FactorsExecutorApp<T: RuntimeFactors, U: 'static> {
     executor: Arc<FactorsExecutor<T, U>>,
     configured_app: ConfiguredApp<T>,
     // Maps component IDs -> InstancePres
-    component_instance_pres: HashMap<String, InstancePre<T, U>>,
+    component_instance_pres: HashMap<HandlerLookupKey, InstancePre<T, U>>,
 }
 
 impl<T: RuntimeFactors, U: Send + 'static> FactorsExecutorApp<T, U> {
@@ -155,22 +183,22 @@ impl<T: RuntimeFactors, U: Send + 'static> FactorsExecutorApp<T, U> {
         self.configured_app.app()
     }
 
-    pub fn get_component(&self, component_id: &str) -> anyhow::Result<&Component> {
+    pub fn get_component(&self, component_id: &HandlerLookupKey) -> anyhow::Result<&Component> {
         Ok(self.get_instance_pre(component_id)?.component())
     }
 
-    pub fn get_instance_pre(&self, component_id: &str) -> anyhow::Result<&InstancePre<T, U>> {
+    pub fn get_instance_pre(&self, component_id: &HandlerLookupKey) -> anyhow::Result<&InstancePre<T, U>> {
         self.component_instance_pres
             .get(component_id)
             .with_context(|| format!("no such component {component_id:?}"))
     }
 
     /// Returns an instance builder for the given component ID.
-    pub fn prepare(&self, component_id: &str) -> anyhow::Result<FactorsInstanceBuilder<'_, T, U>> {
+    pub fn prepare(&self, component_id: &HandlerLookupKey) -> anyhow::Result<FactorsInstanceBuilder<'_, T, U>> {
         let app_component = self
             .configured_app
             .app()
-            .get_component(component_id)
+            .get_component(component_id.primary_id())
             .with_context(|| format!("no such component {component_id:?}"))?;
 
         let instance_pre = self.component_instance_pres.get(component_id).unwrap();
@@ -178,7 +206,7 @@ impl<T: RuntimeFactors, U: Send + 'static> FactorsExecutorApp<T, U> {
         let factor_builders = self
             .executor
             .factors
-            .prepare(&self.configured_app, component_id)?;
+            .prepare(&self.configured_app, component_id.primary_id())?;
 
         let store_builder = self.executor.core_engine.store_builder();
 
@@ -345,7 +373,7 @@ mod tests {
             .load_app(app, Default::default(), &DummyComponentLoader, None)
             .await?;
 
-        let mut instance_builder = factors_app.prepare("empty")?;
+        let mut instance_builder = factors_app.prepare(&HandlerLookupKey::Simple("empty".to_string()))?;
 
         assert_eq!(instance_builder.app_component().id(), "empty");
 
@@ -368,6 +396,7 @@ mod tests {
             &self,
             engine: &spin_core::wasmtime::Engine,
             _component: &AppComponent,
+            _complications: &HashMap<String, Vec<LockedComponentSource>>,
         ) -> anyhow::Result<Component> {
             Component::new(engine, "(component)")
         }

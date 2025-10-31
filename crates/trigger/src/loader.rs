@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use anyhow::Context as _;
+use spin_app::locked::LockedComponentSource;
 use spin_common::{ui::quoted_path, url::parse_file_url};
 use spin_compose::ComponentSourceLoaderFs;
 use spin_core::{async_trait, wasmtime, Component};
@@ -73,6 +76,7 @@ impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for Comp
         &self,
         engine: &wasmtime::Engine,
         component: &AppComponent,
+        complications: &HashMap<String, Vec<LockedComponentSource>>,
     ) -> anyhow::Result<Component> {
         let source = component
             .source()

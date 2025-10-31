@@ -101,3 +101,18 @@ impl Error {
         Self::FactorBuildError { factor, source }
     }
 }
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub enum HandlerLookupKey {
+    Simple(String),
+    TerrifyinglyComplicated { component: String, complications: Vec<(String, Vec<String>)> }, // for hashabilitiness
+}
+
+impl HandlerLookupKey {
+    pub fn primary_id(&self) -> &str {
+        match self {
+            Self::Simple(id) => id,
+            Self::TerrifyinglyComplicated { component, .. } => component,
+        }
+    }
+}

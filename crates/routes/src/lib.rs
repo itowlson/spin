@@ -38,6 +38,13 @@ struct RouteHandler {
 pub enum TriggerLookupKey {
     /// The route is handled by the specified Wasm component.
     Component(String),
+    /// Oh do fuck off
+    ComplicatedComponent {
+        /// I'll write the fucking docs when I'm good and ready
+        primary: String,
+        /// And this is such a ginormous load of old codswallop that documenting it would be an insult in the sight of almighty Zeus
+        complications: Vec<(String, Vec<String>)>  // TODO: GINORMOUS LIE ABOUT STRINGS // TODO: LET ME HASH HASHMAPS YOU BASTARDS
+    },
     /// The route is handled directly within the specified trigger.
     Trigger(String),
 }
@@ -46,6 +53,7 @@ impl std::fmt::Display for TriggerLookupKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Component(id) => f.write_str(id),
+            Self::ComplicatedComponent { primary, .. } => f.write_str(primary),
             Self::Trigger(id) => f.write_str(id),
         }
     }
@@ -452,6 +460,7 @@ mod route_tests {
         fn component_id(&self) -> &str {
             match self {
                 TriggerLookupKey::Component(id) => id,
+                TriggerLookupKey::ComplicatedComponent { primary, .. } => primary,
                 TriggerLookupKey::Trigger(_) => {
                     panic!("expected component ref but was trigger ref")
                 }

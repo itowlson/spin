@@ -206,7 +206,7 @@ impl<F: RuntimeFactors> Subscriber<F> {
 
         let (instance, mut store) = self
             .trigger_app
-            .prepare(component_id)?
+            .prepare(&spin_factors::HandlerLookupKey::Simple(component_id.to_string()))?
             .instantiate(())
             .await?;
 
