@@ -37,6 +37,7 @@ impl<F: RuntimeFactors> Trigger<F> for RedisTrigger {
     type CliArgs = NoCliArgs;
 
     type InstanceState = ();
+    type Complicator = ();
 
     fn new(_cli_args: Self::CliArgs, _app: &App) -> anyhow::Result<Self> {
         Ok(Self)

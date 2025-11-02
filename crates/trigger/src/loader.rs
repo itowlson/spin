@@ -77,6 +77,7 @@ impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for Comp
         engine: &wasmtime::Engine,
         component: &AppComponent,
         complications: &HashMap<String, Vec<LockedComponentSource>>,
+        complicator: &impl spin_factors_executor::Complicator,
     ) -> anyhow::Result<Component> {
         let source = component
             .source()
@@ -93,7 +94,26 @@ impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for Comp
                 .with_context(|| format!("error deserializing component from {path:?}"));
         }
 
-        let composed = spin_compose::compose(&ComponentSourceLoaderFs, component.locked)
+        let loader = ComponentSourceLoaderFs;
+
+        use spin_compose::ComponentSourceLoader;
+
+        let mut complications2 = HashMap::with_capacity(complications.len());
+
+        for (key, compls) in complications {
+            let mut compls2 = Vec::with_capacity(compls.len());
+
+            for compl in compls {
+                let csrc = loader.load_source(compl).await?;
+                compls2.push(spin_factors_executor::Complication { source: compl.clone(), data: csrc });
+            }
+
+            complications2.insert(key.to_string(), compls2);
+        }
+
+        let complicate = |c: Vec<u8>| complicator.complicate(&complications2, c).map_err(|e| spin_compose::ComposeError::PrepareError(e));
+
+        let composed = spin_compose::compose(&loader, component.locked, complicate)
             .await
             .with_context(|| {
                 format!(
@@ -101,12 +121,6 @@ impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for Comp
                     component.locked.id
                 )
             })?;
-
-        if let Some(middlewares) = complications.get("middleware") {
-            if !middlewares.is_empty() {
-                // TODO: PRECOMPOSE THE LIVING SHIT OUT OF THEM
-            }
-        }
 
         spin_core::Component::new(engine, composed)
             .with_context(|| format!("failed to compile component from {}", quoted_path(&path)))

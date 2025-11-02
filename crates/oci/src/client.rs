@@ -364,7 +364,7 @@ impl Client {
         let mut layers = Vec::new();
 
         for mut c in locked.components {
-            let composed = spin_compose::compose(&ComponentSourceLoaderFs, &c)
+            let composed = spin_compose::compose(&ComponentSourceLoaderFs, &c, Ok)  // TODO: not Ok
                 .await
                 .with_context(|| {
                     format!("failed to resolve dependencies for component {:?}", c.id)
