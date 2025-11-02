@@ -22,12 +22,13 @@ pub(super) fn prepare_request(
     req: &mut Request<Body>,
     client_addr: SocketAddr,
 ) -> Result<()> {
-    let spin_http::routes::TriggerLookupKey::Component(component_id) = route_match.lookup_key()
-    else {
-        unreachable!()
+    let cid = match route_match.lookup_key() {
+        spin_http::routes::TriggerLookupKey::Component(component_id) => component_id,
+        spin_http::routes::TriggerLookupKey::ComplicatedComponent { primary, .. } => primary,
+        spin_http::routes::TriggerLookupKey::Trigger(_) => panic!("preparing comp for static resp, what is happening"),
     };
 
-    tracing::trace!("Executing request using the Wasi executor for component {component_id}");
+    tracing::trace!("Executing request using the Wasi executor for component {cid}");
 
     let headers = prepare_request_headers(req, route_match, client_addr)?;
     req.headers_mut().clear();
