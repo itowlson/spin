@@ -80,11 +80,90 @@ pub struct HttpTrigger {
     find_free_port: bool,
 }
 
+#[derive(Default)]
+pub struct HttpMiddlewareComplicator;
+
+impl spin_factors_executor::Complicator for HttpMiddlewareComplicator {
+    fn complicate(&self, complications: &std::collections::HashMap<String, Vec<spin_factors_executor::Complication>>, component: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+        let Some(pipeline) = complications.get("middleware") else {
+            return Ok(component);
+        };
+        if pipeline.is_empty() {
+            return Ok(component);
+        }
+
+        println!("COMPLICATING THINGS! mw count={}", pipeline.len());
+        let pipey_blobs = pipeline.iter().map(|cm| &cm.data);
+        let compo = complicate_the_living_shit_out_of_all_the_things(component, pipey_blobs);
+
+        Ok(compo)
+    }
+}
+
+fn complicate_the_living_shit_out_of_all_the_things<'a>(depped_source: Vec<u8>, pipey_blobs: impl Iterator<Item = &'a Vec<u8>>) -> Vec<u8> {
+    let td = tempfile::tempdir().unwrap();
+    let mut pipey_blob_paths = vec![];
+    for (pbindex, pb) in pipey_blobs.enumerate() {
+        let pb_path = td.path().join(format!("pipey-blob-idx{pbindex}.wasm"));
+        std::fs::write(&pb_path, pb).unwrap();
+        pipey_blob_paths.push(pb_path);
+    }
+    let final_path = td.path().join("final-final-v2.wasm");
+    std::fs::write(&final_path, depped_source).unwrap();
+    pipey_blob_paths.push(final_path);
+
+    let mut config = wasm_compose::config::Config::default();
+    config.skip_validation = true;
+    // config.definitions = pipey_blob_paths.iter().skip(1).map(|p| p.clone()).collect();
+    // config.definitions.push(final_path);
+    config.dependencies = pipey_blob_paths.iter().skip(1).enumerate().map(|(i, p)| (format!("pipe{i}"), wasm_compose::config::Dependency { path: p.clone() })).collect();
+
+    config.instantiations.insert(wasm_compose::composer::ROOT_COMPONENT_NAME.to_owned(), wasm_compose::config::Instantiation {
+        dependency: None,
+        arguments: [("spin:up/next@3.5.0".to_owned(), wasm_compose::config::InstantiationArg { instance: "pipe0inst".to_owned(), export: Some("wasi:http/handler@0.3.0-rc-2025-09-16".to_owned()) })].into(),
+    });
+
+    //let mut curr = wasm_compose::composer::ROOT_COMPONENT_NAME.to_owned();
+    let last = pipey_blob_paths.iter().skip(1).enumerate().last().unwrap().0;
+
+    for (i, _p) in pipey_blob_paths.iter().skip(1).enumerate() {
+        let dep_ref = format!("pipe{i}");
+        let inst_ref = format!("{dep_ref}inst");
+        let instarg = wasm_compose::config::InstantiationArg {
+            instance: format!("pipe{}inst", i + 1),
+            export: Some("wasi:http/handler@0.3.0-rc-2025-09-16".to_owned()),
+        };
+        let inst = if i == last {
+            wasm_compose::config::Instantiation {
+                dependency: Some(dep_ref.clone()),
+                arguments: Default::default(),
+            }
+        } else {
+            wasm_compose::config::Instantiation {
+                dependency: Some(dep_ref.clone()),
+                arguments: [("spin:up/next@3.5.0".to_owned(), instarg)].into_iter().collect(),
+            }
+        };
+        config.instantiations.insert(inst_ref.clone(), inst);
+        //curr = inst_ref;
+    }
+
+    // eprintln!("{config:?}");
+
+    let composer = wasm_compose::composer::ComponentComposer::new(&pipey_blob_paths[0], &config);
+    let compo = composer.compose().unwrap();
+
+    // std::fs::write("./COMPYWOMPY.wasm", &compo).unwrap();
+
+    compo
+}
+
 impl<F: RuntimeFactors> Trigger<F> for HttpTrigger {
     const TYPE: &'static str = "http";
 
     type CliArgs = CliArgs;
     type InstanceState = ();
+    type Complicator = HttpMiddlewareComplicator;
 
     fn new(cli_args: Self::CliArgs, app: &spin_app::App) -> anyhow::Result<Self> {
         let find_free_port = cli_args.find_free_port;

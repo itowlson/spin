@@ -37,6 +37,8 @@ pub trait Trigger<F: RuntimeFactors>: Sized + Send {
     /// The instance state for this trigger.
     type InstanceState: Send + 'static;
 
+    type Complicator: spin_factors_executor::Complicator;
+
     /// Constructs a new trigger.
     fn new(cli_args: Self::CliArgs, app: &App) -> anyhow::Result<Self>;
 

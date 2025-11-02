@@ -341,7 +341,7 @@ impl<T: Trigger<B::Factors>, B: RuntimeFactorsBuilder> TriggerAppBuilder<T, B> {
         let configured_app = {
             let _sloth_guard = warn_if_wasm_build_slothful();
             executor
-                .load_app(app, runtime_config.into(), loader, Some(T::TYPE))
+                .load_app(app, runtime_config.into(), loader, Some(T::TYPE), T::Complicator::default())
                 .await?
         };
 
@@ -399,6 +399,7 @@ pub mod help {
         const TYPE: &'static str = "help-args-only";
         type CliArgs = NoCliArgs;
         type InstanceState = ();
+        type Complicator = ();
 
         fn new(_cli_args: Self::CliArgs, _app: &App) -> anyhow::Result<Self> {
             Ok(Self)
