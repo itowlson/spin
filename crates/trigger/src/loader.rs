@@ -102,6 +102,12 @@ impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for Comp
                 )
             })?;
 
+        if let Some(middlewares) = complications.get("middleware") {
+            if !middlewares.is_empty() {
+                // TODO: PRECOMPOSE THE LIVING SHIT OUT OF THEM
+            }
+        }
+
         spin_core::Component::new(engine, composed)
             .with_context(|| format!("failed to compile component from {}", quoted_path(&path)))
     }
