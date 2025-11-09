@@ -30,6 +30,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 tracing = { workspace = true }
+uuid = { version = "1.0", features = ["v4"] }
 walkdir = { workspace = true }
 wasmparser = { workspace = true }
 wat = "1"

@@ -879,7 +879,8 @@ fn looks_like_glob_pattern(s: impl AsRef<str>) -> bool {
     glob::Pattern::escape(s) != s
 }
 
-fn file_content_ref(path: impl AsRef<Path>) -> Result<ContentRef> {
+/// A ContentRef for the given file path
+pub fn file_content_ref(path: impl AsRef<Path>) -> Result<ContentRef> {
     Ok(ContentRef {
         source: Some(file_url(path)?),
         ..Default::default()

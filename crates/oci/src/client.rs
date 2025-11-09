@@ -283,7 +283,7 @@ impl Client {
         assembly_mode: AssemblyMode,
         compose_mode: ComposeMode,
     ) -> Result<Vec<ImageLayer>> {
-        let (mut layers, components) = match compose_mode {
+        let (mut layers, components, triggers) = match compose_mode {
             ComposeMode::All => {
                 self.assemble_layers_composed(assembly_mode, locked.clone())
                     .await?
@@ -296,6 +296,9 @@ impl Client {
 
         locked.components = components;
         locked.metadata.remove("origin");
+        if let Some(triggers) = triggers {
+            locked.triggers = triggers;
+        }
 
         // Deduplicate layers
         layers = layers.into_iter().unique().collect();
@@ -307,7 +310,7 @@ impl Client {
         &mut self,
         assembly_mode: AssemblyMode,
         locked: LockedApp,
-    ) -> Result<(Vec<ImageLayer>, Vec<LockedComponent>)> {
+    ) -> Result<(Vec<ImageLayer>, Vec<LockedComponent>, Option<Vec<spin_locked_app::locked::LockedTrigger>>)> {
         let mut components = Vec::new();
         let mut layers = Vec::new();
 
@@ -352,19 +355,48 @@ impl Client {
             components.push(c);
         }
 
-        Ok((layers, components))
+        Ok((layers, components, None))
     }
 
     async fn assemble_layers_composed(
         &mut self,
         assembly_mode: AssemblyMode,
-        locked: LockedApp,
-    ) -> Result<(Vec<ImageLayer>, Vec<LockedComponent>)> {
+        mut locked: LockedApp,
+    ) -> Result<(Vec<ImageLayer>, Vec<LockedComponent>, Option<Vec<spin_locked_app::locked::LockedTrigger>>)> {
         let mut components = Vec::new();
+        let mut triggers = Vec::new();
         let mut layers = Vec::new();
 
+        let locko = locked.clone();
+        let temp_comps_dir = tempfile::tempdir().unwrap();
+
+        for t in &mut locked.triggers {
+            let Some(complications) = t.trigger_config.get("components").and_then(|v| v.as_object()) else {
+                triggers.push(t.clone());
+                continue;
+            };
+            if complications.is_empty() {
+                triggers.push(t.clone());
+                continue;
+            }
+            // let complications = complications.clone();
+
+            let cfg = t.trigger_config.as_object_mut().unwrap();
+
+            let synthetic_id = make_synthetic_id(cfg.get("component").and_then(|v| v.as_str()), &t.id);
+            let synthocomp = complicate(&synthetic_id, temp_comps_dir.path(), &locko, &t).await;
+            locked.components.push(synthocomp);
+            let cfg = t.trigger_config.as_object_mut().unwrap();
+            cfg.insert("component".to_string(), synthetic_id.into());
+            cfg.remove("components");
+
+            triggers.push(t.clone());
+        }
+
         for mut c in locked.components {
-            let composed = spin_compose::compose(&ComponentSourceLoaderFs, &c, Ok)  // TODO: not Ok
+            // let reffing_trggs = locked.triggers.iter().filter(|t| t.trigger_config.get("component").and_then(|c| c.as_str()) == Some(&c.id)).collect::<Vec<_>>();
+            // println!("- reffed by {} triggs", reffing_trggs.len());
+            let composed = spin_compose::compose(&ComponentSourceLoaderFs, &c, Ok)  // TODO: not Ok // TODO: actually maybe Ok and then we complicate it later, not sure
                 .await
                 .with_context(|| {
                     format!("failed to resolve dependencies for component {:?}", c.id)
@@ -377,10 +409,69 @@ impl Client {
             c.files = self
                 .assemble_content_layers(assembly_mode, &mut layers, c.files.as_slice())
                 .await?;
+
+            // println!("LOCKED COMP ---------------\n{}\n-------------", serde_json::to_string_pretty(&c).unwrap());
+
             components.push(c);
         }
 
-        Ok((layers, components))
+        async fn complicate(id: &str, wd: &Path, app: &LockedApp, t: &spin_locked_app::locked::LockedTrigger) -> LockedComponent {
+            // eprintln!("-- comnplicating {}", t.id);
+            let current_c_id = t.trigger_config.get("component").and_then(|v| v.as_str()).unwrap();
+            let mut current_c = app.components.iter().find(|c| c.id == current_c_id).unwrap().clone();
+            let wdir = tempfile::tempdir().unwrap();
+            let working_dir = wdir.path();
+            let locked_url = write_locked_app(app, working_dir).await.unwrap();
+
+            const SPIN_LOCKED_URL: &str = "SPIN_LOCKED_URL";
+            // const SPIN_LOCAL_APP_DIR: &str = "SPIN_LOCAL_APP_DIR";
+            const SPIN_WORKING_DIR: &str = "SPIN_WORKING_DIR";
+
+            let mut cmd = tokio::process::Command::new(std::env::current_exe().unwrap());
+            cmd.args(["trigger", "http", "--complicate-only", "--complicate-trigger-id"])
+                .arg(&t.id)
+                .stdout(std::process::Stdio::piped())
+                .env(SPIN_LOCKED_URL, locked_url)
+                .env(SPIN_WORKING_DIR, working_dir);
+
+            // eprintln!("-- command time for {}", t.id);
+            let trigout = cmd.output().await.unwrap();
+            // eprintln!("-- commanded {}", t.id);
+
+            let complicated = trigout.stdout;
+            // eprintln!("-- complication result = {}", String::from_utf8_lossy(&complicated));
+            let compy_path = wd.join(format!("{id}.compo.wasm"));
+            tokio::fs::write(&compy_path, complicated).await.unwrap();
+
+            current_c.source = spin_locked_app::locked::LockedComponentSource { content_type: "application/wasm".into(), content: spin_loader::file_content_ref(&compy_path).unwrap() };
+            current_c.id = id.to_string();
+
+            // current_c.config.insert("SYNTHORAMA".into(), "YESS".into());
+
+            current_c
+        }
+        fn make_synthetic_id(base_id: Option<&str>, trigger_id: &str) -> String {
+            let base_id = base_id.map(|v| v.to_string()).unwrap_or_else(|| format!("mystery-comp-u{}", uuid::Uuid::new_v4().simple()));
+            format!("{base_id}-with-complications-from-{trigger_id}")
+        }
+        async fn write_locked_app(
+            locked_app: &LockedApp,
+            working_dir: &Path,
+        ) -> Result<String, anyhow::Error> {
+            let locked_path = working_dir.join("spin.lock");
+            let locked_app_contents =
+                serde_json::to_vec_pretty(&locked_app).context("failed to serialize locked app")?;
+            tokio::fs::write(&locked_path, locked_app_contents)
+                .await
+                .with_context(|| format!("failed to write {}", quoted_path(&locked_path)))?;
+            let locked_url = Url::from_file_path(&locked_path)
+                .map_err(|_| anyhow::anyhow!("cannot convert to file URL: {}", quoted_path(&locked_path)))?
+                .to_string();
+
+            Ok(locked_url)
+        }
+
+        Ok((layers, components, Some(triggers)))
     }
 
     async fn assemble_content_layers(

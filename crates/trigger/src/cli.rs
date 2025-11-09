@@ -131,6 +131,11 @@ pub struct FactorsTriggerCommand<T: Trigger<B::Factors>, B: RuntimeFactorsBuilde
 
     #[clap(long = "launch-metadata-only", hide = true)]
     pub launch_metadata_only: bool,
+
+    #[clap(long = "complicate-only", hide = true)]
+    pub complicate_only: bool,
+    #[clap(long = "complicate-trigger-id", hide = true)]
+    pub complicate_trigger_id: Option<String>,
 }
 
 /// Configuration options that are common to all triggers.
@@ -200,6 +205,50 @@ impl<T: Trigger<B::Factors>, B: RuntimeFactorsBuilder> FactorsTriggerCommand<T, 
         }
 
         let trigger = T::new(self.trigger_args, &app)?;
+
+        if self.complicate_only {
+            eprintln!("I'M COMPLICATING THIS MOFO");
+            use spin_factors_executor::Complicator;
+
+            #[derive(serde::Deserialize)]
+            struct CommonTriggerConfig {
+                // component: Option<String>,
+                #[serde(default)]
+                components: std::collections::HashMap<String, Vec<String>>,
+            }
+
+            let complicator = T::Complicator::default();
+            let trigger_id = self.complicate_trigger_id.as_ref().unwrap();
+            let trigger = app.triggers().find(|t| t.id() == trigger_id).unwrap();
+            let trigger_cfg = trigger.typed_config::<CommonTriggerConfig>().unwrap();
+            let complication_ids = trigger_cfg.components;
+            let complicand_c = trigger.component().unwrap();
+            eprintln!("I'M READY AND ABOUT TO START LOADING SHIT");
+
+            let loader = spin_compose::ComponentSourceLoaderFs;
+            use spin_compose::ComponentSourceLoader;
+
+            let mut complications= std::collections::HashMap::new();
+            for (k, v) in complication_ids {
+                let mut these_complications = vec![];
+                for cid in v {
+                    let compy_comp = app.get_component(&cid).unwrap();
+                    let source = compy_comp.source().clone();
+                    these_complications.push(spin_factors_executor::Complication { data: loader.load_source(&source).await.unwrap(), source });
+                }
+                complications.insert(k, these_complications);
+            }
+
+            let complicand = loader.load_component_source(&complicand_c.locked).await.unwrap();
+
+            let complicated = complicator.complicate(&complications, complicand).unwrap();
+
+
+            use std::io::Write;
+            std::io::stdout().write_all(&complicated).unwrap();
+            return Ok(());
+        }
+
         let mut builder: TriggerAppBuilder<T, B> = TriggerAppBuilder::new(trigger);
         let config = builder.engine_config();
 

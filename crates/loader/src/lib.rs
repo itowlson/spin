@@ -25,6 +25,7 @@ mod local;
 
 pub use local::requires_service_chaining;
 pub use local::WasmLoader;
+pub use local::file_content_ref;
 
 /// Maximum number of files to copy (or download) concurrently
 pub(crate) const MAX_FILE_LOADING_CONCURRENCY: usize = 16;

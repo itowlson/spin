@@ -8945,6 +8945,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "uuid",
  "walkdir",
  "wasm-encoder 0.240.0",
  "wasmparser 0.240.0",

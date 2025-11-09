@@ -116,6 +116,7 @@ impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for Comp
         let composed = spin_compose::compose(&loader, component.locked, complicate)
             .await
             .with_context(|| {
+                println!("LOADWOLD: also composing the thing");
                 format!(
                     "failed to resolve dependencies for component {:?}",
                     component.locked.id

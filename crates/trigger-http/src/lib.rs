@@ -92,7 +92,6 @@ impl spin_factors_executor::Complicator for HttpMiddlewareComplicator {
             return Ok(component);
         }
 
-        println!("COMPLICATING THINGS! mw count={}", pipeline.len());
         let pipey_blobs = pipeline.iter().map(|cm| &cm.data);
         let compo = complicate_the_living_shit_out_of_all_the_things(component, pipey_blobs);
 

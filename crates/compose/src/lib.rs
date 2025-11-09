@@ -142,7 +142,7 @@ impl ComponentSourceLoaderFs {
         })?;
 
         let component = spin_componentize::componentize_if_necessary(&bytes)
-            .with_context(|| format!("failed to componentize {}", quoted_path(&path)))?;
+            .with_context(|| format!("failed to componentize {}: bunfight={}", quoted_path(&path), &String::from_utf8_lossy(&bytes).to_string()[..100]))?;
 
         Ok(component.into())
     }
@@ -214,7 +214,6 @@ impl<'a, L: ComponentSourceLoader> Composer<'a, L> {
         let depped_source = if component.dependencies().len() == 0 {
             source
         } else {
-
             let (world_id, instantiation_id) = self
                 .register_package(component.id(), None, source)
                 .map_err(ComposeError::PrepareError)?;
