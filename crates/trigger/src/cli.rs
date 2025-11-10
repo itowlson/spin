@@ -207,7 +207,6 @@ impl<T: Trigger<B::Factors>, B: RuntimeFactorsBuilder> FactorsTriggerCommand<T, 
         let trigger = T::new(self.trigger_args, &app)?;
 
         if self.complicate_only {
-            eprintln!("I'M COMPLICATING THIS MOFO");
             use spin_factors_executor::Complicator;
 
             #[derive(serde::Deserialize)]
@@ -223,7 +222,6 @@ impl<T: Trigger<B::Factors>, B: RuntimeFactorsBuilder> FactorsTriggerCommand<T, 
             let trigger_cfg = trigger.typed_config::<CommonTriggerConfig>().unwrap();
             let complication_ids = trigger_cfg.components;
             let complicand_c = trigger.component().unwrap();
-            eprintln!("I'M READY AND ABOUT TO START LOADING SHIT");
 
             let loader = spin_compose::ComponentSourceLoaderFs;
             use spin_compose::ComponentSourceLoader;
