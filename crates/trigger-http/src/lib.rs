@@ -162,7 +162,7 @@ impl<F: RuntimeFactors> Trigger<F> for HttpTrigger {
 
     type CliArgs = CliArgs;
     type InstanceState = ();
-    type Complicator = HttpMiddlewareComplicator;
+    // type Complicator = HttpMiddlewareComplicator;
 
     fn new(cli_args: Self::CliArgs, app: &spin_app::App) -> anyhow::Result<Self> {
         let find_free_port = cli_args.find_free_port;
@@ -173,6 +173,10 @@ impl<F: RuntimeFactors> Trigger<F> for HttpTrigger {
             cli_args.into_tls_config(),
             find_free_port,
         )
+    }
+
+    fn complicator() -> impl spin_factors_executor::Complicator {
+        HttpMiddlewareComplicator
     }
 
     async fn run(self, trigger_app: TriggerApp<F>) -> anyhow::Result<()> {

@@ -22,7 +22,7 @@ pub struct Complication {
     pub data: Vec<u8>,
 }
 
-pub trait Complicator: Default + Send + Sync {
+pub trait Complicator: Send + Sync {
     fn complicate(&self, complications: &HashMap<String, Vec<Complication>>, component: Vec<u8>) -> anyhow::Result<Vec<u8>>;
 }
 

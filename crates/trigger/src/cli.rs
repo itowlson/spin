@@ -217,7 +217,7 @@ impl<T: Trigger<B::Factors>, B: RuntimeFactorsBuilder> FactorsTriggerCommand<T, 
                 components: std::collections::HashMap<String, Vec<String>>,
             }
 
-            let complicator = T::Complicator::default();
+            let complicator = T::complicator();
             let trigger_id = self.complicate_trigger_id.as_ref().unwrap();
             let trigger = app.triggers().find(|t| t.id() == trigger_id).unwrap();
             let trigger_cfg = trigger.typed_config::<CommonTriggerConfig>().unwrap();
@@ -390,7 +390,7 @@ impl<T: Trigger<B::Factors>, B: RuntimeFactorsBuilder> TriggerAppBuilder<T, B> {
         let configured_app = {
             let _sloth_guard = warn_if_wasm_build_slothful();
             executor
-                .load_app(app, runtime_config.into(), loader, Some(T::TYPE), T::Complicator::default())
+                .load_app(app, runtime_config.into(), loader, Some(T::TYPE), T::complicator())
                 .await?
         };
 
@@ -448,7 +448,6 @@ pub mod help {
         const TYPE: &'static str = "help-args-only";
         type CliArgs = NoCliArgs;
         type InstanceState = ();
-        type Complicator = ();
 
         fn new(_cli_args: Self::CliArgs, _app: &App) -> anyhow::Result<Self> {
             Ok(Self)
