@@ -427,8 +427,16 @@ impl Client {
             // const SPIN_LOCAL_APP_DIR: &str = "SPIN_LOCAL_APP_DIR";
             const SPIN_WORKING_DIR: &str = "SPIN_WORKING_DIR";
 
+            let ttype = &t.trigger_type;
+            let ttype_subcmd = match ttype.as_str() {
+                "http" | "redis" => vec!["trigger".into(), ttype.clone()],
+                _ => vec![format!("trigger-{ttype}")],
+            };
+            
+
             let mut cmd = tokio::process::Command::new(std::env::current_exe().unwrap());
-            cmd.args(["trigger", "http", "--complicate-only", "--complicate-trigger-id"])
+            cmd.args(ttype_subcmd)
+                .args(["--complicate-only", "--complicate-trigger-id"])
                 .arg(&t.id)
                 .stdout(std::process::Stdio::piped())
                 .env(SPIN_LOCKED_URL, locked_url)
@@ -437,6 +445,14 @@ impl Client {
             // eprintln!("-- command time for {}", t.id);
             let trigout = cmd.output().await.unwrap();
             // eprintln!("-- commanded {}", t.id);
+
+            use std::io::Write;
+            _ = std::io::stderr().write(&trigout.stderr);
+
+            if !trigout.status.success() {
+                // TODO: I know! I know!
+                panic!("complicating failed, bailing");
+            }
 
             let complicated = trigout.stdout;
             // eprintln!("-- complication result = {}", String::from_utf8_lossy(&complicated));
