@@ -27,8 +27,12 @@ pub trait Complicator: Send + Sync {
 }
 
 impl Complicator for () {
-    fn complicate(&self, _complications: &HashMap<String, Vec<Complication>>, component: Vec<u8>) -> anyhow::Result<Vec<u8>> {
-        Ok(component)
+    fn complicate(&self, complications: &HashMap<String, Vec<Complication>>, component: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+        if complications.is_empty() {
+            Ok(component)
+        } else {
+            Err(anyhow::anyhow!("this trigger should not have complications"))
+        }
     }
 }
 
@@ -212,19 +216,24 @@ impl<T: RuntimeFactors, U: Send + 'static> FactorsExecutorApp<T, U> {
     }
 
     /// Returns an instance builder for the given component ID.
-    pub fn prepare(&self, component_id: &HandlerLookupKey) -> anyhow::Result<FactorsInstanceBuilder<'_, T, U>> {
+    pub fn prepare(&self, lookup_key: &HandlerLookupKey) -> anyhow::Result<FactorsInstanceBuilder<'_, T, U>> {
+        // eprintln!("preparing {lookup_key:?}");
         let app_component = self
             .configured_app
             .app()
-            .get_component(component_id.primary_id())
-            .with_context(|| format!("no such component {component_id:?}"))?;
+            .get_component(lookup_key.primary_id())
+            .with_context(|| format!("no such component {lookup_key:?}"))?;
 
-        let instance_pre = self.component_instance_pres.get(component_id).unwrap();
+        // eprintln!("looking in table with keys {:?}", self.component_instance_pres.keys().collect::<Vec<_>>());
+        let instance_pre = self.component_instance_pres.get(lookup_key).unwrap();
+
+        let eidx = instance_pre.component().get_export_index(None, "wasi:http/handler@0.3.0-rc-2025-09-16");
+        println!("WASI EXPORT INDEX = {eidx:?}");
 
         let factor_builders = self
             .executor
             .factors
-            .prepare(&self.configured_app, component_id.primary_id())?;
+            .prepare(&self.configured_app, lookup_key.primary_id())?;
 
         let store_builder = self.executor.core_engine.store_builder();
 

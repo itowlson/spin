@@ -88,6 +88,9 @@ impl spin_factors_executor::Complicator for HttpMiddlewareComplicator {
         let Some(pipeline) = complications.get("middleware") else {
             return Ok(component);
         };
+        if complications.len() > 1 {
+            bail!("whoa too complicated, only allowed complication is `middleware`");
+        }
         if pipeline.is_empty() {
             return Ok(component);
         }
@@ -152,7 +155,11 @@ fn complicate_the_living_shit_out_of_all_the_things<'a>(depped_source: Vec<u8>, 
     let composer = wasm_compose::composer::ComponentComposer::new(&pipey_blob_paths[0], &config);
     let compo = composer.compose().unwrap();
 
-    // std::fs::write("./COMPYWOMPY.wasm", &compo).unwrap();
+    // static COUNT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+
+    // std::fs::write(format!("./COMPYWOMPY{}.wasm", COUNT.load(std::sync::atomic::Ordering::Relaxed)), &compo).unwrap();
+
+    // COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     compo
 }
