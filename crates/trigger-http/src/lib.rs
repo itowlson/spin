@@ -2,6 +2,7 @@
 
 mod headers;
 mod instrument;
+mod middleware;
 mod outbound_http;
 mod server;
 mod spin;
@@ -110,6 +111,10 @@ impl<F: RuntimeFactors> Trigger<F> for HttpTrigger {
         server.serve().await?;
 
         Ok(())
+    }
+
+    fn complicator() -> impl spin_factors_executor::Complicator {
+        middleware::HttpMiddlewareComplicator
     }
 
     fn supported_host_requirements() -> Vec<&'static str> {
