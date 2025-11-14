@@ -127,7 +127,10 @@ impl<CF: ClientFactory> spin_world::spin::postgres4_1_0::postgres::HostConnectio
         self_: wasmtime::component::Resource<v4::Connection>,
         statement: String,
         params: Vec<v4::ParameterValue>
-    ) -> Result<wasmtime::component::StreamReader<v4::Row>, v4::Error> {
+    ) -> Result<(
+        wasmtime::component::FutureReader<Vec<v4::Column>>,
+        wasmtime::component::StreamReader<v4::Row>
+    ), v4::Error> {
         use wasmtime::AsContextMut;
         use client::Client;
 
@@ -137,15 +140,16 @@ impl<CF: ClientFactory> spin_world::spin::postgres4_1_0::postgres::HostConnectio
             cli.clone()
         });
 
-        let mut results_rx = client.query_async(statement, params).await?;
+        let (col_rx, mut results_rx) = client.query_async(statement, params).await?;
 
         let (tx, rx) = tokio::sync::mpsc::channel::<v4::Row>(100);
         let row_producer = RowProducer { rx };
+        let col_producer = ColumnProducer { rx: col_rx };
 
-        let sr = accessor.with(|mut access| {
-            let inst = access.instance();
-            let store = access.as_context_mut();
-            wasmtime::component::StreamReader::new(inst, store, row_producer)
+        let (fr, sr) = accessor.with(|mut access| {
+            let fr = wasmtime::component::FutureReader::new(access.instance(), access.as_context_mut(), col_producer);
+            let sr = wasmtime::component::StreamReader::new(access.instance(), access.as_context_mut(), row_producer);
+            (fr, sr)
         });
 
         tokio::task::spawn(async move {
@@ -157,13 +161,9 @@ impl<CF: ClientFactory> spin_world::spin::postgres4_1_0::postgres::HostConnectio
                 };
                 tx.send(row).await.unwrap();
             }
-            // for row in results.rows {
-            //     // tokio::time::sleep(tokio::time::Duration::from_millis(750)).await; // for vis
-            //     tx.send(row).await.unwrap();
-            // }
         });
 
-        Ok(sr)
+        Ok((fr, sr))
     }
 }
 
@@ -199,6 +199,31 @@ impl<D> wasmtime::component::StreamProducer<D> for RowProducer {
                 destination.set_buffer(Some(row));
                 Poll::Ready(Ok(StreamResult::Completed))
             }
+        }
+    }
+}
+
+struct ColumnProducer {
+    rx: tokio::sync::oneshot::Receiver<Vec<v4::Column>>,
+}
+
+impl<D> wasmtime::component::FutureProducer<D> for ColumnProducer {
+    type Item = Vec<v4::Column>;
+
+    fn poll_produce(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        _store: wasmtime::StoreContextMut<D>,
+        _finish: bool,
+    ) -> std::task::Poll<anyhow::Result<Option<Self::Item>>> {
+        use std::task::Poll;
+        use std::future::Future;
+
+        let pinned_rx = std::pin::Pin::new(&mut self.get_mut().rx);
+        match pinned_rx.poll(cx) {
+            Poll::Ready(Err(e)) => Poll::Ready(Err(anyhow::anyhow!("{e:#}"))),
+            Poll::Ready(Ok(cols)) => Poll::Ready(Ok(Some(cols))),
+            Poll::Pending => Poll::Pending,
         }
     }
 }

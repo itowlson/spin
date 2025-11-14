@@ -104,7 +104,7 @@ pub trait Client: Clone + Send + Sync + 'static {
         &self,
         statement: String,
         params: Vec<ParameterValue>,
-    ) -> Result<futures::channel::mpsc::Receiver<v4::Row>, v4::Error>;
+    ) -> Result<(tokio::sync::oneshot::Receiver<Vec<v4::Column>>, futures::channel::mpsc::Receiver<v4::Row>), v4::Error>;
 }
 
 /// Extract weak-typed error data for WIT purposes
@@ -216,7 +216,7 @@ impl Client for Arc<deadpool_postgres::Object> {
         &self,
         statement: String,
         params: Vec<ParameterValue>,
-    ) -> Result<futures::channel::mpsc::Receiver<v4::Row>, v4::Error> {
+    ) -> Result<(tokio::sync::oneshot::Receiver<Vec<v4::Column>>, futures::channel::mpsc::Receiver<v4::Row>), v4::Error> {
         let params = params
             .iter()
             .map(to_sql_parameter)
@@ -233,6 +233,8 @@ impl Client for Arc<deadpool_postgres::Object> {
         let stm = self.as_ref().query_raw(&statement, params_refs).await.map_err(query_failed)?;
         
         let (mut tx, rx) = futures::channel::mpsc::channel(1000);
+        let (cols_tx, cols_rx) = tokio::sync::oneshot::channel();
+        let mut cols_tx_opt = Some(cols_tx);
 
         let mut stm = Box::pin(stm);
 
@@ -244,28 +246,17 @@ impl Client for Arc<deadpool_postgres::Object> {
                     break;
                 };
                 let row = row.unwrap();
+                if let Some(cols_tx) = cols_tx_opt.take() {
+                    eprintln!("sending cols");
+                    cols_tx.send(infer_columns(&row)).unwrap();
+                    eprintln!("sent cols");
+                }
                 let row = convert_row(&row).unwrap();
                 tx.send(row).await.unwrap();
             }
         });
 
-        Ok(rx)
-
-        // let objman = self.as_ref;
-        // let something = *objman;
-        // let gcli = something.client();
-        // let gcli = self.client();
-
-        // // use tokio_postgres::GenericClient;
-
-        // let stm = tokio_postgres::GenericClient::query(&gcli, &statement, params_ref.as_slice()).await;
-
-        // todo!()
-
-        // let results = client
-        //     .query(&statement, params_refs.as_slice())
-        //     .await
-        //     .map_err(query_failed)?;
+        Ok((cols_rx, rx))
     }
 }
 

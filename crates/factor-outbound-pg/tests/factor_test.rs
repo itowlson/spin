@@ -143,7 +143,7 @@ impl Client for MockClient {
         &self,
         _statement: String,
         _params: Vec<ParameterValue>,
-    ) -> Result<futures::channel::mpsc::Receiver<v2::Row>, v2::Error> {
+    ) -> Result<(tokio::sync::oneshot::Receiver<Vec<v2::Column>>, futures::channel::mpsc::Receiver<v2::Row>), v2::Error> {
         panic!("not implemented");
     }
 }
