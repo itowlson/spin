@@ -1,14 +1,18 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use spin_world::async_trait;
-use spin_world::spin::postgres4_0_0::postgres::{
+use spin_world::spin::postgres4_2_0::postgres::{
     self as v4, Column, DbValue, ParameterValue, RowSet,
 };
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{config::SslMode, NoTls, Row};
 
-use crate::types::{convert_data_type, convert_entry, to_sql_parameter};
+use crate::types::{
+    as_sql_parameter_refs, convert_data_type, convert_entry, to_sql_parameter, to_sql_parameters,
+};
 
 /// Max connections in a given address' connection pool
 const CONNECTION_POOL_SIZE: usize = 64;
@@ -40,7 +44,7 @@ impl Default for PooledTokioClientFactory {
 
 #[async_trait]
 impl ClientFactory for PooledTokioClientFactory {
-    type Client = deadpool_postgres::Object;
+    type Client = Arc<deadpool_postgres::Object>;
 
     async fn get_client(&self, address: &str) -> Result<Self::Client> {
         let pool = self
@@ -49,7 +53,7 @@ impl ClientFactory for PooledTokioClientFactory {
             .map_err(ArcError)
             .context("establishing PostgreSQL connection pool")?;
 
-        Ok(pool.get().await?)
+        Ok(Arc::new(pool.get().await?))
     }
 }
 
@@ -85,7 +89,7 @@ fn create_connection_pool(address: &str) -> Result<deadpool_postgres::Pool> {
 }
 
 #[async_trait]
-pub trait Client: Send + Sync + 'static {
+pub trait Client: Clone + Send + Sync + 'static {
     async fn execute(
         &self,
         statement: String,
@@ -97,6 +101,18 @@ pub trait Client: Send + Sync + 'static {
         statement: String,
         params: Vec<ParameterValue>,
     ) -> Result<RowSet, v4::Error>;
+
+    async fn query_async(
+        &self,
+        statement: String,
+        params: Vec<ParameterValue>,
+    ) -> Result<
+        (
+            tokio::sync::oneshot::Receiver<Vec<v4::Column>>,
+            tokio::sync::mpsc::Receiver<Result<v4::Row, v4::Error>>,
+        ),
+        v4::Error,
+    >;
 }
 
 /// Extract weak-typed error data for WIT purposes
@@ -142,7 +158,7 @@ fn query_failed(e: tokio_postgres::error::Error) -> v4::Error {
 }
 
 #[async_trait]
-impl Client for deadpool_postgres::Object {
+impl Client for Arc<deadpool_postgres::Object> {
     async fn execute(
         &self,
         statement: String,
@@ -170,16 +186,8 @@ impl Client for deadpool_postgres::Object {
         statement: String,
         params: Vec<ParameterValue>,
     ) -> Result<RowSet, v4::Error> {
-        let params = params
-            .iter()
-            .map(to_sql_parameter)
-            .collect::<Result<Vec<_>>>()
-            .map_err(|e| v4::Error::BadParameter(format!("{e:?}")))?;
-
-        let params_refs: Vec<&(dyn ToSql + Sync)> = params
-            .iter()
-            .map(|b| b.as_ref() as &(dyn ToSql + Sync))
-            .collect();
+        let params = to_sql_parameters(params)?;
+        let params_refs = as_sql_parameter_refs(&params);
 
         let results = self
             .as_ref()
@@ -202,6 +210,63 @@ impl Client for deadpool_postgres::Object {
             .map_err(|e| v4::Error::QueryFailed(v4::QueryError::Text(format!("{e:?}"))))?;
 
         Ok(RowSet { columns, rows })
+    }
+
+    async fn query_async(
+        &self,
+        statement: String,
+        params: Vec<ParameterValue>,
+    ) -> Result<
+        (
+            tokio::sync::oneshot::Receiver<Vec<v4::Column>>,
+            tokio::sync::mpsc::Receiver<Result<v4::Row, v4::Error>>,
+        ),
+        v4::Error,
+    > {
+        let params = to_sql_parameters(params)?;
+        let params_refs = as_sql_parameter_refs(&params);
+
+        let stm = self
+            .as_ref()
+            .query_raw(&statement, params_refs)
+            .await
+            .map_err(query_failed)?;
+
+        let (rows_tx, rows_rx) = tokio::sync::mpsc::channel(1000);
+        let (cols_tx, cols_rx) = tokio::sync::oneshot::channel();
+        let mut cols_tx_opt = Some(cols_tx);
+
+        let mut stm = Box::pin(stm);
+
+        tokio::spawn(async move {
+            use futures::StreamExt;
+            loop {
+                let Some(row) = stm.next().await else {
+                    break;
+                };
+                // TODO: figure out how to deal with errors here - I think there is like a FutureReader<Error> pattern?
+                let row = match row {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let err = query_failed(e);
+                        rows_tx.send(Err(err)).await.unwrap();
+                        break;
+                    }
+                };
+                if let Some(cols_tx) = cols_tx_opt.take() {
+                    cols_tx.send(infer_columns(&row)).unwrap();
+                }
+                match convert_row(&row) {
+                    Ok(row) => rows_tx.send(Ok(row)).await.unwrap(),
+                    Err(e) => {
+                        let err = v4::Error::QueryFailed(v4::QueryError::Text(format!("{e:?}")));
+                        rows_tx.send(Err(err)).await.unwrap();
+                    }
+                }
+            }
+        });
+
+        Ok((cols_rx, rows_rx))
     }
 }
 
