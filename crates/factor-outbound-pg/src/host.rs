@@ -1,7 +1,7 @@
 use anyhow::Result;
 use spin_core::wasmtime::component::Resource;
 use spin_world::spin::postgres3_0_0::postgres::{self as v3};
-use spin_world::spin::postgres4_0_0::postgres::{self as v4};
+use spin_world::spin::postgres4_1_0::postgres::{self as v4};
 use spin_world::v1::postgres as v1;
 use spin_world::v1::rdbms_types as v1_types;
 use spin_world::v2::postgres::{self as v2};
@@ -149,7 +149,7 @@ impl<CF: ClientFactory> v4::HostConnection for InstanceState<CF> {
 
         self.open_connection(&address).await
     }
-
+    
     #[instrument(name = "spin_outbound_pg.execute", skip(self, connection, params), err(level = Level::INFO), fields(otel.kind = "client", db.system = "postgresql", otel.name = statement))]
     async fn execute(
         &mut self,
@@ -181,7 +181,6 @@ impl<CF: ClientFactory> v4::HostConnection for InstanceState<CF> {
         Ok(())
     }
 }
-
 impl<CF: ClientFactory> v2_types::Host for InstanceState<CF> {
     fn convert_error(&mut self, error: v2::Error) -> Result<v2::Error> {
         Ok(error)
