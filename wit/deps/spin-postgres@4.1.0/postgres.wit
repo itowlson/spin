@@ -162,8 +162,8 @@ interface postgres {
     query: func(statement: string, params: list<parameter-value>) -> result<row-set, error>;
 
     /// Query the database.
-    // NOT WORRYING ABOUT COLUMNS FOR NOW. LATER
-    query-async: async func(statement: string, params: list<parameter-value>) -> result<stream<row>, error>;
+    // NOT WORRYING ABOUT ERRORS ON ROWS FOR NOW
+    query-async: async func(statement: string, params: list<parameter-value>) -> result<tuple<future<list<column>>, stream<row>>, error>;
 
     /// Execute command to the database.
     execute: func(statement: string, params: list<parameter-value>) -> result<u64, error>;
