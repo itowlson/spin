@@ -181,14 +181,18 @@ impl<D> wasmtime::component::StreamProducer<D> for RowProducer {
         cx: &mut std::task::Context<'_>,
         store: wasmtime::StoreContextMut<'a, D>,
         mut destination: wasmtime::component::Destination<'a, Self::Item, Self::Buffer>,
-        _finish: bool,
+        finish: bool,
     ) -> std::task::Poll<anyhow::Result<wasmtime::component::StreamResult>> {
         use std::task::Poll;
         use wasmtime::component::StreamResult;
 
+        if finish {
+            return Poll::Ready(Ok(StreamResult::Cancelled));
+        }
+
         let remaining = destination.remaining(store);
         if remaining.is_some_and(|r| r == 0) {
-            return Poll::Pending;
+            return Poll::Ready(Ok(StreamResult::Completed));
         }
 
         let recv = self.get_mut().rx.poll_recv(cx);
