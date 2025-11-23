@@ -6,7 +6,8 @@ edition = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
-rusqlite = { workspace = true, features = ["bundled", "array"] }
+bytes = { workspace = true }
+rusqlite = { workspace = true, features = ["blob", "bundled", "array"] }
 serde = { workspace = true }
 spin-core = { path = "../core" }
 spin-factor-key-value = { path = "../factor-key-value" }

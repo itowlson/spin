@@ -140,6 +140,12 @@ impl Store for MockStore {
     async fn get_keys(&self) -> Result<Vec<String>, Error> {
         todo!()
     }
+    async fn get_stream(&self, key: &str) -> anyhow::Result<(tokio::sync::mpsc::Receiver<bytes::Bytes>, tokio::sync::oneshot::Receiver<Result<(), spin_factor_key_value::V3Error>>)> {
+        todo!()
+    }
+    async fn get_keys_stream(&self) -> anyhow::Result<(tokio::sync::mpsc::Receiver<String>, tokio::sync::oneshot::Receiver<Result<(), spin_factor_key_value::V3Error>>)> {
+        todo!()
+    }
 
     async fn get_many(
         &self,

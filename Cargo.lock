@@ -8573,6 +8573,7 @@ name = "spin-factor-key-value"
 version = "3.7.0-pre0"
 dependencies = [
  "anyhow",
+ "bytes",
  "serde",
  "spin-core",
  "spin-factor-otel",
@@ -8912,9 +8913,11 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-dynamodb",
+ "bytes",
  "serde",
  "spin-core",
  "spin-factor-key-value",
+ "tokio",
 ]
 
 [[package]]
@@ -8926,10 +8929,12 @@ dependencies = [
  "azure_core 0.21.0",
  "azure_data_cosmos",
  "azure_identity 0.21.0",
+ "bytes",
  "futures",
  "reqwest 0.12.9",
  "serde",
  "spin-factor-key-value",
+ "tokio",
 ]
 
 [[package]]
@@ -8937,6 +8942,7 @@ name = "spin-key-value-redis"
 version = "3.7.0-pre0"
 dependencies = [
  "anyhow",
+ "bytes",
  "redis",
  "serde",
  "spin-core",
@@ -8950,6 +8956,7 @@ name = "spin-key-value-spin"
 version = "3.7.0-pre0"
 dependencies = [
  "anyhow",
+ "bytes",
  "rusqlite",
  "serde",
  "spin-core",

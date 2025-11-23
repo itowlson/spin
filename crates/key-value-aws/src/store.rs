@@ -21,7 +21,7 @@ use aws_sdk_dynamodb::{
     Client,
 };
 use spin_core::async_trait;
-use spin_factor_key_value::{log_error, Cas, Error, Store, StoreManager, SwapError};
+use spin_factor_key_value::{log_error, Cas, Error, Store, StoreManager, SwapError, V3Error};
 
 pub struct KeyValueAwsDynamo {
     /// AWS region
@@ -199,6 +199,14 @@ impl Store for AwsDynamoStore {
         });
 
         Ok(item)
+    }
+
+    async fn get_stream(&self, key: &str) -> Result<(tokio::sync::mpsc::Receiver<bytes::Bytes>, tokio::sync::oneshot::Receiver<Result<(), V3Error>>)> {
+        todo!()
+    }
+
+    async fn get_keys_stream(&self) -> Result<(tokio::sync::mpsc::Receiver<String>, tokio::sync::oneshot::Receiver<Result<(), V3Error>>)> {
+        todo!()
     }
 
     async fn set(&self, key: &str, value: &[u8]) -> Result<(), Error> {

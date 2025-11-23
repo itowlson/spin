@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use redis::{aio::ConnectionManager, parse_redis_url, AsyncCommands, Client, RedisError};
 use spin_core::async_trait;
-use spin_factor_key_value::{log_error, Cas, Error, Store, StoreManager, SwapError};
+use spin_factor_key_value::{log_error, Cas, Error, Store, StoreManager, SwapError, V3Error};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use url::Url;
@@ -76,6 +76,55 @@ impl Store for RedisStore {
         self.connection.clone().get(key).await.map_err(log_error)
     }
 
+    async fn get_stream(&self, key: &str) -> Result<(tokio::sync::mpsc::Receiver<bytes::Bytes>, tokio::sync::oneshot::Receiver<Result<(), V3Error>>)> {
+        let mut conn = self.connection.clone();
+        let key = key.to_owned();
+
+        let mut from = 0;
+        const CHUNK_SIZE: u8 = 255;
+        let size_i: isize = CHUNK_SIZE.into();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1024);
+        let (etx, erx) = tokio::sync::oneshot::channel::<Result<(), V3Error>>();
+
+        tokio::task::spawn(async move {
+            let mut first = true;
+
+            loop {
+                let chunk: bytes::Bytes = match conn.getrange(&key, from, from + size_i).await {
+                    Ok(chunk) => chunk,
+                    Err(e) => {
+                        _ = etx.send(Err(V3Error::Other(e.to_string())));
+                        return;
+                    }
+                };
+
+                from = from + size_i + 1;  // because getrange end bound is inclusive
+
+                let at_end = chunk.len() < CHUNK_SIZE.into();
+
+                if first && chunk.is_empty() {
+                    // no such key
+                }
+
+                first = false;
+
+                if tx.send(chunk).await.is_err() {
+                    _ = etx.send(Err(V3Error::Other("internal barf error".to_owned())));
+                    return;
+                }
+
+                if at_end {
+                    break;
+                }
+            }
+            
+            etx.send(Ok(())).unwrap();
+        });
+
+        Ok((rx, erx))
+    }
+
     async fn set(&self, key: &str, value: &[u8]) -> Result<(), Error> {
         self.connection
             .clone()
@@ -94,6 +143,37 @@ impl Store for RedisStore {
 
     async fn get_keys(&self) -> Result<Vec<String>, Error> {
         self.connection.clone().keys("*").await.map_err(log_error)
+    }
+
+    async fn get_keys_stream(&self) -> Result<(tokio::sync::mpsc::Receiver<String>, tokio::sync::oneshot::Receiver<Result<(), V3Error>>)> {
+        let mut conn = self.connection.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1024);
+        let (etx, erx) = tokio::sync::oneshot::channel::<Result<(), V3Error>>();
+
+        tokio::task::spawn(async move {
+            let mut keys = match conn.scan().await {
+                Ok(iter) => iter,
+                Err(e) => {
+                    _ = etx.send(Err(V3Error::Other(e.to_string())));
+                    return;
+                }
+            };
+            loop {
+                match keys.next_item().await {
+                    None => break,
+                    Some(k) => {
+                        if tx.send(k).await.is_err() {
+                            _ = etx.send(Err(V3Error::Other("internal barf error".to_owned())));
+                            return;
+                        }
+                    }
+                }
+            }
+            etx.send(Ok(())).unwrap();
+        });
+
+        Ok((rx, erx))
     }
 
     async fn get_many(&self, keys: Vec<String>) -> Result<Vec<(String, Option<Vec<u8>>)>, Error> {

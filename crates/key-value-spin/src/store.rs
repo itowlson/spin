@@ -1,13 +1,14 @@
 use anyhow::Result;
 use rusqlite::{named_params, Connection};
 use spin_core::async_trait;
-use spin_factor_key_value::{log_cas_error, log_error, Cas, Error, Store, StoreManager, SwapError};
+use spin_factor_key_value::{log_cas_error, log_error, Cas, Error, Store, StoreManager, SwapError, V3Error};
 use std::rc::Rc;
 use std::{
     path::PathBuf,
     sync::OnceLock,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
+use std::sync::Mutex;
 use tokio::task;
 
 #[derive(Clone, Debug)]
@@ -112,6 +113,117 @@ impl Store for SqliteStore {
                 .transpose()
                 .map_err(log_error)
         })
+    }
+
+    async fn get_stream(&self, key: &str) -> Result<(tokio::sync::mpsc::Receiver<bytes::Bytes>, tokio::sync::oneshot::Receiver<Result<(), V3Error>>)> {
+        let conn_mx = self.connection.clone();
+        let store_name = self.name.to_owned();
+        let key = key.to_owned();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1024);
+        let (etx, erx) = tokio::sync::oneshot::channel::<Result<(), V3Error>>();
+        let (btx, brx) = std::sync::mpsc::channel();
+
+        // The read loop has to be blocking because Blob contains a raw
+        // pointer which is the most un-Send thing in the whole world.
+        tokio::task::spawn_blocking(move || {
+            use std::io::Read;
+
+            let mut conn = conn_mx.lock().unwrap();
+            let txn = conn.transaction().unwrap();
+            let row_id: i64 = txn.query_row("SELECT ROWID FROM spin_key_value WHERE store=$1 AND key=$2", [&store_name, &key], |row| row.get(0)).unwrap();
+            let db_name = rusqlite::DatabaseName::Main;
+            let mut blob = txn.blob_open(db_name, "spin_key_value", "value", row_id, true).unwrap();
+
+            loop {
+                let mut buf = [0; 256];
+                let count = blob.read(&mut buf).unwrap();
+                if count == 0 {
+                    break;
+                }
+                let by = bytes::Bytes::copy_from_slice(&buf[0..count]);
+                btx.send(by).unwrap();
+            }
+        });
+
+        // But for reasons that may or may not be good the actual
+        // sending of chunks is on a tokio channel so needs to have
+        // awaits on it so run another loop whee.
+        tokio::task::spawn(async move {
+            loop {
+                let Ok(by) = brx.recv() else {
+                    break;
+                };
+                tx.send(by).await.unwrap();
+            }
+        });
+
+        Ok((rx, erx))
+    }
+
+    async fn get_keys_stream(&self) -> Result<(tokio::sync::mpsc::Receiver<String>, tokio::sync::oneshot::Receiver<Result<(), V3Error>>)> {
+        let conn_mx = self.connection.clone();
+        let store_name = self.name.to_owned();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1024);
+        let (etx, erx) = tokio::sync::oneshot::channel::<Result<(), V3Error>>();
+        let (btx, brx) = std::sync::mpsc::channel();
+
+        // The read loop has to be blocking because Blob contains a raw
+        // pointer which is the most un-Send thing in the whole world.
+        tokio::task::spawn_blocking(move || {
+            let conn = conn_mx.lock().unwrap();
+
+            let mut stmt = conn
+                .prepare_cached("SELECT key FROM spin_key_value WHERE store=$1")
+                .unwrap();
+            let mut rows = stmt
+                .query([&store_name])
+                .unwrap();
+
+            loop {
+                match rows.next() {
+                    Err(e) => panic!(),
+                    Ok(None) => break,
+                    Ok(Some(row)) => {
+                        let key = row.get(0).unwrap();
+                        btx.send(key).unwrap();
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(600));
+            }
+        });
+
+        // But for reasons that may or may not be good the actual
+        // sending of chunks is on a tokio channel so needs to have
+        // awaits on it so run another loop whee.
+        tokio::task::spawn(async move {
+            loop {
+                let Ok(by) = brx.recv() else {
+                    break;
+                };
+                tx.send(by).await.unwrap();
+            }
+        });
+
+        Ok((rx, erx))
+ 
+    //     let rows = self.connection
+    //         .lock().unwrap()
+    //         .prepare_cached("SELECT key FROM spin_key_value WHERE store=$1")
+    //         .map_err(log_error)?
+    //         .query([&self.name])
+    //         .unwrap();
+
+    //     loop {
+    //         match rows.next() {
+    //             Err(e) => panic!(),
+    //             Ok(None) => break,
+    //             Ok(row) => panic!("send the row Ivan"),
+    //         }
+    //     }
+
+    //     todo!()
     }
 
     async fn set(&self, key: &str, value: &[u8]) -> Result<(), Error> {

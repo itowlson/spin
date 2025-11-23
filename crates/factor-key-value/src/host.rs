@@ -6,6 +6,7 @@ use spin_resource_table::Table;
 use spin_telemetry::traces::{self, Blame};
 use spin_world::v2::key_value;
 use spin_world::wasi::keyvalue as wasi_keyvalue;
+use spin_world::spin::key_value::key_value as v3;
 use std::{collections::HashSet, sync::Arc};
 use tracing::instrument;
 
@@ -33,10 +34,12 @@ pub trait Store: Sync + Send {
         Ok(())
     }
     async fn get(&self, key: &str) -> Result<Option<Vec<u8>>, Error>;
+    async fn get_stream(&self, key: &str) -> Result<(tokio::sync::mpsc::Receiver<bytes::Bytes>, tokio::sync::oneshot::Receiver<Result<(), v3::Error>>)>;
     async fn set(&self, key: &str, value: &[u8]) -> Result<(), Error>;
     async fn delete(&self, key: &str) -> Result<(), Error>;
     async fn exists(&self, key: &str) -> Result<bool, Error>;
     async fn get_keys(&self) -> Result<Vec<String>, Error>;
+    async fn get_keys_stream(&self) -> Result<(tokio::sync::mpsc::Receiver<String>, tokio::sync::oneshot::Receiver<Result<(), v3::Error>>)>;
     async fn get_many(&self, keys: Vec<String>) -> Result<Vec<(String, Option<Vec<u8>>)>, Error>;
     async fn set_many(&self, key_values: Vec<(String, Vec<u8>)>) -> Result<(), Error>;
     async fn delete_many(&self, keys: Vec<String>) -> Result<(), Error>;
@@ -78,6 +81,10 @@ impl KeyValueDispatch {
         }
     }
 
+    pub fn get_store_fr_fr<T: 'static>(&self, store: Resource<T>) -> anyhow::Result<Arc<dyn Store>> {
+        self.get_store(store).map(|s| s.clone())
+    }
+
     pub fn get_store<T: 'static>(&self, store: Resource<T>) -> anyhow::Result<&Arc<dyn Store>> {
         let res = self.stores.get(store.rep()).context("invalid store");
         if let Err(err) = &res {
@@ -114,6 +121,34 @@ impl KeyValueDispatch {
             .ok_or(wasi_keyvalue::atomics::Error::Other(
                 "compare and swap not found".to_string(),
             ))
+    }
+}
+
+impl v3::Host for KeyValueDispatch {
+    fn convert_error(&mut self, err: v3::Error) -> spin_core::wasmtime::Result<v3::Error> {
+        Ok(err)
+    }
+}
+
+pub fn v2_err_to_v3(e: Error) -> v3::Error {
+    match e {
+        Error::StoreTableFull => v3::Error::StoreTableFull,
+        Error::NoSuchStore => v3::Error::NoSuchStore,
+        Error::AccessDenied => v3::Error::AccessDenied,
+        Error::Other(msg) => v3::Error::Other(msg),
+    }
+}
+
+use spin_core::wasmtime;
+
+impl v3::HostStore for KeyValueDispatch {
+    async fn open(&mut self, label: String) -> Result<wasmtime::component::Resource<v3::Store>, v3::Error> {
+        todo!()
+    }
+
+    async fn drop(&mut self, store: wasmtime::component::Resource<v3::Store>) -> wasmtime::Result<()> {
+        self.stores.remove(store.rep());
+        Ok(())
     }
 }
 

@@ -8,7 +8,7 @@ use azure_data_cosmos::{
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use spin_factor_key_value::{log_cas_error, log_error, Cas, Error, Store, StoreManager, SwapError};
+use spin_factor_key_value::{log_cas_error, log_error, Cas, Error, Store, StoreManager, SwapError, V3Error};
 use std::sync::{Arc, Mutex};
 
 pub struct KeyValueAzureCosmos {
@@ -151,6 +151,14 @@ impl Store for AzureCosmosStore {
     async fn get(&self, key: &str) -> Result<Option<Vec<u8>>, Error> {
         let pair = self.get_entity::<Pair>(key).await?;
         Ok(pair.map(|p| p.value))
+    }
+
+    async fn get_stream(&self, key: &str) -> Result<(tokio::sync::mpsc::Receiver<bytes::Bytes>, tokio::sync::oneshot::Receiver<Result<(), V3Error>>)> {
+        todo!()
+    }
+
+    async fn get_keys_stream(&self) -> Result<(tokio::sync::mpsc::Receiver<String>, tokio::sync::oneshot::Receiver<Result<(), V3Error>>)> {
+        todo!()
     }
 
     async fn set(&self, key: &str, value: &[u8]) -> Result<(), Error> {

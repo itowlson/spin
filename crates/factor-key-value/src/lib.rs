@@ -14,6 +14,7 @@ use spin_factors::{
     RuntimeFactors,
 };
 use spin_locked_app::MetadataKey;
+pub use spin_world::spin::key_value::key_value::Error as V3Error;
 
 /// Metadata key for key-value stores.
 pub const KEY_VALUE_STORES_KEY: MetadataKey<Vec<String>> = MetadataKey::new("key_value_stores");
@@ -41,13 +42,14 @@ impl Factor for KeyValueFactor {
     type InstanceBuilder = InstanceBuilder;
 
     fn init(&mut self, ctx: &mut impl InitContext<Self>) -> anyhow::Result<()> {
-        ctx.link_bindings(spin_world::v1::key_value::add_to_linker::<_, FactorData<Self>>)?;
-        ctx.link_bindings(spin_world::v2::key_value::add_to_linker::<_, FactorData<Self>>)?;
-        ctx.link_bindings(spin_world::wasi::keyvalue::store::add_to_linker::<_, FactorData<Self>>)?;
-        ctx.link_bindings(spin_world::wasi::keyvalue::batch::add_to_linker::<_, FactorData<Self>>)?;
+        ctx.link_bindings(spin_world::v1::key_value::add_to_linker::<_, KvFactorData>)?;
+        ctx.link_bindings(spin_world::v2::key_value::add_to_linker::<_, KvFactorData>)?;
+        ctx.link_bindings(spin_world::wasi::keyvalue::store::add_to_linker::<_, KvFactorData>)?;
+        ctx.link_bindings(spin_world::wasi::keyvalue::batch::add_to_linker::<_, KvFactorData>)?;
         ctx.link_bindings(
-            spin_world::wasi::keyvalue::atomics::add_to_linker::<_, FactorData<Self>>,
+            spin_world::wasi::keyvalue::atomics::add_to_linker::<_, KvFactorData>,
         )?;
+        ctx.link_bindings(spin_world::spin::key_value::key_value::add_to_linker::<_, KvFactorData>)?;
         Ok(())
     }
 
@@ -198,5 +200,113 @@ impl FactorInstanceBuilder for InstanceBuilder {
             u32::MAX,
             otel,
         ))
+    }
+}
+
+pub struct KvFactorData(KeyValueFactor);
+
+impl spin_core::wasmtime::component::HasData for KvFactorData {
+    type Data<'a> = &'a mut KeyValueDispatch;
+}
+
+impl spin_core::wasmtime::component::HasData for KeyValueDispatch {
+    type Data<'a> = &'a mut KeyValueDispatch;
+}
+
+use spin_world::spin::key_value::key_value as v3;
+use spin_core::wasmtime;
+
+impl v3::HostStoreWithStore for KvFactorData {
+    async fn get<T>(
+        accessor: &wasmtime::component::Accessor<T,Self>,
+        self_: wasmtime::component::Resource<v3::Store>,
+        key: String,
+    ) -> Result<Option<Vec<u8>>, v3::Error> {
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.get_store_fr_fr(self_)
+        });
+        store.unwrap().get(&key).await.map_err(host::v2_err_to_v3)
+    }
+
+    async fn set<T>(
+        accessor: &wasmtime::component::Accessor<T,Self>,
+        self_: wasmtime::component::Resource<v3::Store>,
+        key: String,
+        value: Vec<u8>,
+    ) -> Result<(), v3::Error> {
+        todo!()
+    }
+
+    async fn delete<T>(
+        accessor: &wasmtime::component::Accessor<T,Self>,
+        self_: wasmtime::component::Resource<v3::Store>,
+        key: String,
+    ) -> Result<(), v3::Error> {
+        todo!()
+    }
+
+    async fn exists<T>(
+        accessor: &wasmtime::component::Accessor<T,Self>,
+        self_: wasmtime::component::Resource<v3::Store>,
+        key: String,
+    ) -> Result<bool, v3::Error> {
+        todo!()
+    }
+
+    async fn set_stream<T>(
+        accessor: &wasmtime::component::Accessor<T,Self>,
+        self_: wasmtime::component::Resource<v3::Store>,
+        key: String,
+        value: wasmtime::component::StreamReader<u8>,
+    ) -> Result<(), v3::Error> {
+        todo!()
+    }
+
+    async fn get_keys<T>(
+        accessor: &wasmtime::component::Accessor<T,Self>,
+        self_: wasmtime::component::Resource<v3::Store>,
+    ) -> wasmtime::Result<(wasmtime::component::StreamReader<String>, wasmtime::component::FutureReader<Result<(),v3::Error>>)> {
+        use spin_core::wasmtime::AsContextMut;
+
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.get_store_fr_fr(self_)
+        });
+        let (producer, eproducer) = util::wasify(store.unwrap().get_keys_stream().await.unwrap());
+        
+        let (sr, fr) = accessor.with(|mut access| {
+            let sr = wasmtime::component::StreamReader::new(access.instance(), access.as_context_mut(), producer);
+            let fr = wasmtime::component::FutureReader::new(access.instance(), access.as_context_mut(), eproducer);
+            (sr, fr)
+        });
+
+        Ok((sr, fr))
+    }
+    
+    async fn get_stream<T>(
+        accessor: &wasmtime::component::Accessor<T,Self>,
+        self_: wasmtime::component::Resource<v3::Store>,
+        key: String
+    ) -> wasmtime::Result<(Option<wasmtime::component::StreamReader<u8>>,wasmtime::component::FutureReader<Result<(),v3::Error>>,)>
+    {
+        use spin_core::wasmtime::AsContextMut;
+
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.get_store_fr_fr(self_)
+        });
+
+        let (producer, eproducer) = util::wasify_bytes(store.unwrap().get_stream(&key).await.unwrap());
+
+        let (sr, fr) = accessor.with(|mut access| {
+            let sr = wasmtime::component::StreamReader::new(access.instance(), access.as_context_mut(), producer);
+            let fr = wasmtime::component::FutureReader::new(access.instance(), access.as_context_mut(), eproducer);
+            (sr, fr)
+        });
+
+        // okay this makes mock of the Option. We presumably need another way to signal "key not found"
+        // or maybe that is the error thing
+        Ok((Some(sr), fr))
     }
 }
