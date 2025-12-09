@@ -142,8 +142,18 @@ pub fn v2_err_to_v3(e: Error) -> v3::Error {
 use spin_core::wasmtime;
 
 impl v3::HostStore for KeyValueDispatch {
-    async fn open(&mut self, label: String) -> Result<wasmtime::component::Resource<v3::Store>, v3::Error> {
-        todo!()
+    async fn open(&mut self, name: String) -> Result<wasmtime::component::Resource<v3::Store>, v3::Error> {
+        if self.allowed_stores.contains(&name) {
+            let store = self.manager.get(&name).await.unwrap();
+            store.after_open().await.unwrap();
+            let store_idx = self
+                .stores
+                .push(store)
+                .map_err(|()| v3::Error::StoreTableFull)?;
+            Ok(Resource::new_own(store_idx))
+        } else {
+            Err(v3::Error::AccessDenied)
+        }
     }
 
     async fn drop(&mut self, store: wasmtime::component::Resource<v3::Store>) -> wasmtime::Result<()> {

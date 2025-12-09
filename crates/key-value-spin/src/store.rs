@@ -137,12 +137,20 @@ impl Store for SqliteStore {
 
             loop {
                 let mut buf = [0; 256];
-                let count = blob.read(&mut buf).unwrap();
+                let count = match blob.read(&mut buf) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("BLOB READ ERR! {e}");
+                        panic!();
+                    }
+                };
                 if count == 0 {
                     break;
                 }
                 let by = bytes::Bytes::copy_from_slice(&buf[0..count]);
-                btx.send(by).unwrap();
+                if let Err(_e) = btx.send(by) {
+                    break;
+                }
             }
         });
 
@@ -154,7 +162,10 @@ impl Store for SqliteStore {
                 let Ok(by) = brx.recv() else {
                     break;
                 };
-                tx.send(by).await.unwrap();
+                if let Err(_e) = tx.send(by).await {
+                    break;
+                }
+                // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
         });
 
@@ -169,8 +180,8 @@ impl Store for SqliteStore {
         let (etx, erx) = tokio::sync::oneshot::channel::<Result<(), V3Error>>();
         let (btx, brx) = std::sync::mpsc::channel();
 
-        // The read loop has to be blocking because Blob contains a raw
-        // pointer which is the most un-Send thing in the whole world.
+        // The read loop has to be blocking because CachedStatement does not
+        // like to exist across await points (and an async send is an await point).
         tokio::task::spawn_blocking(move || {
             let conn = conn_mx.lock().unwrap();
 
@@ -190,7 +201,11 @@ impl Store for SqliteStore {
                         btx.send(key).unwrap();
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(600));
+                // So if this loop is slow then it blocks the WHOLE enumeration (except
+                // the first thing).  So we have to hope for cases like this that loop not slow.
+                // eprintln!("* sleep");
+                // std::thread::sleep(std::time::Duration::from_millis(60));
+                // eprintln!("* slept");
             }
         });
 
@@ -203,27 +218,11 @@ impl Store for SqliteStore {
                     break;
                 };
                 tx.send(by).await.unwrap();
+                //tokio::time::sleep(tokio::time::Duration::from_millis(60)).await;
             }
         });
 
         Ok((rx, erx))
- 
-    //     let rows = self.connection
-    //         .lock().unwrap()
-    //         .prepare_cached("SELECT key FROM spin_key_value WHERE store=$1")
-    //         .map_err(log_error)?
-    //         .query([&self.name])
-    //         .unwrap();
-
-    //     loop {
-    //         match rows.next() {
-    //             Err(e) => panic!(),
-    //             Ok(None) => break,
-    //             Ok(row) => panic!("send the row Ivan"),
-    //         }
-    //     }
-
-    //     todo!()
     }
 
     async fn set(&self, key: &str, value: &[u8]) -> Result<(), Error> {

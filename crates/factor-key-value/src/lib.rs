@@ -235,7 +235,11 @@ impl v3::HostStoreWithStore for KvFactorData {
         key: String,
         value: Vec<u8>,
     ) -> Result<(), v3::Error> {
-        todo!()
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.get_store_fr_fr(self_)
+        });
+        store.unwrap().set(&key, &value).await.map_err(host::v2_err_to_v3)
     }
 
     async fn delete<T>(
