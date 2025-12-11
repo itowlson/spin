@@ -28,6 +28,8 @@ chmod 644 server.crt ca.crt
 # 7. Clean up the CSR (optional)
 rm server.csr
 
+cd ..
+
 psql -d postgres -c "ALTER SYSTEM SET ssl = 'on';" \
   -c "ALTER SYSTEM SET ssl_cert_file = '${PWD}/postgres-ssl/server.crt';" \
   -c "ALTER SYSTEM SET ssl_key_file = '${PWD}/postgres-ssl/server.key';" \
