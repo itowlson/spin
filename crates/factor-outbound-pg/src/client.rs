@@ -68,7 +68,16 @@ fn create_connection_pool(address: &str) -> Result<deadpool_postgres::Pool> {
     let mgr = if config.get_ssl_mode() == SslMode::Disable {
         deadpool_postgres::Manager::from_config(config, NoTls, mgr_config)
     } else {
-        let builder = TlsConnector::builder();
+        let mut builder = TlsConnector::builder();
+        let crt = r"-----BEGIN CERTIFICATE-----
+TODO: replace with PG CA
+-----END CERTIFICATE-----
+";
+        // This is an option to play around with setting the CA cert for the PG DB here. I couldn't get it working.
+        if config.get_ssl_mode() == SslMode::Require {
+            builder.add_root_certificate((native_tls::Certificate::from_pem(crt.as_bytes())?));
+        }
+
         let connector = MakeTlsConnector::new(builder.build()?);
         deadpool_postgres::Manager::from_config(config, connector, mgr_config)
     };

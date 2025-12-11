@@ -11,3 +11,6 @@ spin-plugin-update.lock
 package-lock.json
 .spin
 .DS_Store
+pg-app/pg/data/*
+pg-app/postgres-ssl/*
+postgres.log
