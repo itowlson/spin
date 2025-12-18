@@ -3,12 +3,13 @@ use futures::stream::TryStreamExt as _;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use spin_world::async_trait;
-use spin_world::spin::postgres4_0_0::postgres::{
+use spin_world::spin::postgres4_1_0::postgres::{
     self as v4, Column, DbValue, ParameterValue, RowSet,
 };
 use std::pin::pin;
+use tokio_postgres::config::SslMode;
 use tokio_postgres::types::ToSql;
-use tokio_postgres::{config::SslMode, NoTls, Row};
+use tokio_postgres::{NoTls, Row};
 
 use crate::types::{convert_data_type, convert_entry, to_sql_parameter};
 
@@ -24,12 +25,12 @@ pub trait ClientFactory: Default + Send + Sync + 'static {
     /// The type of client produced by `get_client`.
     type Client: Client;
     /// Gets a client from the factory.
-    async fn get_client(&self, address: &str) -> Result<Self::Client>;
+    async fn get_client(&self, address: &str, root_ca: Option<&String>) -> Result<Self::Client>;
 }
 
 /// A `ClientFactory` that uses a connection pool per address.
 pub struct PooledTokioClientFactory {
-    pools: moka::sync::Cache<String, deadpool_postgres::Pool>,
+    pools: moka::sync::Cache<(String, Option<String>), deadpool_postgres::Pool>,
 }
 
 impl Default for PooledTokioClientFactory {
@@ -44,10 +45,11 @@ impl Default for PooledTokioClientFactory {
 impl ClientFactory for PooledTokioClientFactory {
     type Client = deadpool_postgres::Object;
 
-    async fn get_client(&self, address: &str) -> Result<Self::Client> {
+    async fn get_client(&self, address: &str, root_ca: Option<&String>) -> Result<Self::Client> {
+        let pool_key = (address.to_string(), root_ca.cloned());
         let pool = self
             .pools
-            .try_get_with_by_ref(address, || create_connection_pool(address))
+            .try_get_with_by_ref(&pool_key, || create_connection_pool(address, root_ca))
             .map_err(ArcError)
             .context("establishing PostgreSQL connection pool")?;
 
@@ -56,7 +58,10 @@ impl ClientFactory for PooledTokioClientFactory {
 }
 
 /// Creates a Postgres connection pool for the given address.
-fn create_connection_pool(address: &str) -> Result<deadpool_postgres::Pool> {
+fn create_connection_pool(
+    address: &str,
+    root_ca: Option<&String>,
+) -> Result<deadpool_postgres::Pool> {
     let config = address
         .parse::<tokio_postgres::Config>()
         .context("parsing Postgres connection string")?;
@@ -70,7 +75,11 @@ fn create_connection_pool(address: &str) -> Result<deadpool_postgres::Pool> {
     let mgr = if config.get_ssl_mode() == SslMode::Disable {
         deadpool_postgres::Manager::from_config(config, NoTls, mgr_config)
     } else {
-        let builder = TlsConnector::builder();
+        let mut builder = TlsConnector::builder();
+        if let Some(root_ca) = root_ca {
+            let cert_bytes = root_ca.as_bytes();
+            builder.add_root_certificate(native_tls::Certificate::from_pem(cert_bytes)?);
+        }
         let connector = MakeTlsConnector::new(builder.build()?);
         deadpool_postgres::Manager::from_config(config, connector, mgr_config)
     };
