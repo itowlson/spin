@@ -132,7 +132,8 @@ pub struct Trigger {
     /// Learn more: https://spinframework.dev/triggers#triggers-and-components
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<ComponentSpec>,
-    /// Reserved for future use.
+    /// Additional components used when the trigger occurs.
+    /// The meaning of entries in this table is trigger-specific.
     ///
     /// `components = { ... }`
     #[serde(default, skip_serializing_if = "Map::is_empty")]
