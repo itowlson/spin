@@ -67,7 +67,11 @@ impl ComponentLoader {
         }
     }
 
-    pub(crate) async fn load_full(&self, component: &AppComponent<'_>, complicator: &impl spin_factors_executor::Complicator) -> anyhow::Result<Vec<u8>> {
+    pub(crate) async fn load_composed(
+        &self,
+        component: &AppComponent<'_>,
+        complicator: &impl spin_factors_executor::Complicator,
+    ) -> anyhow::Result<Vec<u8>> {
         let loader = ComponentSourceLoaderFs;
 
         let empty: serde_json::Map<String, serde_json::Value> = Default::default();
@@ -123,35 +127,7 @@ impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for Comp
                 .with_context(|| format!("error deserializing component from {path:?}"));
         }
 
-        let composed = self.load_full(component, complicator).await?;
-
-        // let loader = ComponentSourceLoaderFs;
-
-        // let empty: serde_json::Map<String, serde_json::Value> = Default::default();
-        // let extras = component
-        //     .locked
-        //     .metadata
-        //     .get("trigger-extras")
-        //     .and_then(|v| v.as_object())
-        //     .unwrap_or(&empty);
-
-        // let complications = load_complications(component.app, extras, &loader).await?;
-
-        // let complicate = async |c: Vec<u8>| {
-        //     complicator
-        //         .complicate(&complications, c)
-        //         .await
-        //         .map_err(spin_compose::ComposeError::PrepareError)
-        // };
-
-        // let composed = spin_compose::compose(&loader, component.locked, complicate)
-        //     .await
-        //     .with_context(|| {
-        //         format!(
-        //             "failed to resolve dependencies for component {:?}",
-        //             component.locked.id
-        //         )
-        //     })?;
+        let composed = self.load_composed(component, complicator).await?;
 
         spin_core::Component::new(engine, composed)
             .with_context(|| format!("failed to compile component from {}", quoted_path(&path)))

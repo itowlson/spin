@@ -214,27 +214,34 @@ impl<T: Trigger<B::Factors>, B: RuntimeFactorsBuilder> FactorsTriggerCommand<T, 
             App::new(locked_url, locked)
         };
 
-        // Validate required host features
-        if let Err(unmet) = app.ensure_needs_only(T::TYPE, &T::supported_host_requirements()) {
-            anyhow::bail!("This application requires the following features that are not available in this version of the '{}' trigger: {unmet}", T::TYPE);
-        }
-
+        // Handle --precompose-only
         if self.precompose_only {
-            let Some(resolve_extras_component_id) = self.precompose_component_id.as_ref()
-            else {
-                anyhow::bail!("got --resolve-extras-only but no --resolve-extras-component-id");
+            let Some(precompose_component_id) = self.precompose_component_id.as_ref() else {
+                anyhow::bail!("got --precompose-only but no --precompose-component-id");
             };
 
-            let Some(component) = app.get_component(resolve_extras_component_id) else {
-                anyhow::bail!("--resolve-extras-component-id: component does not exist");
+            let Some(component) = app.get_component(precompose_component_id) else {
+                anyhow::bail!("--precompose-component-id: component does not exist");
             };
 
             let loader = crate::loader::ComponentLoader::new();
-            let composed = loader.load_full(&component, &T::complicator()).await?;
+            let composed = loader
+                .load_composed(&component, &T::complicator())
+                .await
+                .with_context(|| {
+                    format!("failed to precompose component {precompose_component_id}")
+                })?;
 
             use std::io::Write;
-            std::io::stdout().write_all(&composed).unwrap();
+            std::io::stdout()
+                .write_all(&composed)
+                .context("failed to write composition to stdout")?;
             return Ok(());
+        }
+
+        // Validate required host features
+        if let Err(unmet) = app.ensure_needs_only(T::TYPE, &T::supported_host_requirements()) {
+            anyhow::bail!("This application requires the following features that are not available in this version of the '{}' trigger: {unmet}", T::TYPE);
         }
 
         let trigger = T::new(self.trigger_args, &app)?;
