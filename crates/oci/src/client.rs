@@ -370,14 +370,26 @@ impl Client {
         let locked_url = write_locked_app(&locked, working_dir).await.unwrap();
 
         for mut c in locked.components {
-            let complicate =
-                |data: Vec<u8>| compose_trigger_extras(&c, &locked_url, working_dir, data);
+            // TODO: what if, instead of having a separate complicate that
+            // called the trigger, we had the trigger do the full compose
+            // (in the presence of extras)?  The trigger already has logic
+            // for that...
+            let extras =  c.metadata.get("trigger-extras").and_then(|e| e.as_object());
 
-            let composed = spin_compose::compose(&ComponentSourceLoaderFs, &c, complicate)
-                .await
-                .with_context(|| {
-                    format!("failed to resolve dependencies for component {:?}", c.id)
-                })?;
+            let composed = if extras.is_none_or(|e| e.is_empty()) {
+                spin_compose::compose(&ComponentSourceLoaderFs, &c, async |a| Ok(a)).await?
+            } else {
+                compose_trigger_extras_2(&c, &locked_url, working_dir).await?
+            };
+
+            // let complicate =
+            //     |data: Vec<u8>| compose_trigger_extras(&c, &locked_url, working_dir, data);
+
+            // let composed = spin_compose::compose(&ComponentSourceLoaderFs, &c, complicate)
+            //     .await
+            //     .with_context(|| {
+            //         format!("failed to resolve dependencies for component {:?}", c.id)
+            //     })?;
             let layer = ImageLayer::new(composed, WASM_LAYER_MEDIA_TYPE.to_string(), None);
             c.source.content = self.content_ref_for_layer(&layer);
             c.dependencies.clear();
@@ -938,11 +950,76 @@ fn add_inferred(map: &mut BTreeMap<String, String>, key: &str, value: Option<Str
 const SPIN_LOCKED_URL: &str = "SPIN_LOCKED_URL";
 const SPIN_WORKING_DIR: &str = "SPIN_WORKING_DIR";
 
-async fn compose_trigger_extras(
+// async fn compose_trigger_extras(
+//     c: &LockedComponent,
+//     locked_url: &str,
+//     working_dir: &Path,
+//     data: Vec<u8>,
+// ) -> Result<Vec<u8>, spin_compose::ComposeError> {
+//     use spin_compose::ComposeError;
+
+//     let Some(resolve_extras_using) = c
+//         .metadata
+//         .get("resolve-extras-using")
+//         .and_then(|v| v.as_str())
+//     else {
+//         return Result::<_, ComposeError>::Ok(data);
+//     };
+
+//     let resolver_subcmd = match resolve_extras_using {
+//         "http" | "redis" => vec!["trigger".into(), resolve_extras_using.into()],
+//         _ => vec![format!("trigger-{resolve_extras_using}")],
+//     };
+
+//     let mut cmd = tokio::process::Command::new(std::env::current_exe().unwrap());
+//     cmd.args(resolver_subcmd)
+//         .args(["--resolve-extras-only", "--resolve-extras-component-id"])
+//         .arg(&c.id)
+//         // .stdin(std::process::Stdio::piped())
+//         .stdout(std::process::Stdio::piped())
+//         .stderr(std::process::Stdio::inherit())
+//         .env("SPIN_PLUGINS_SUPPRESS_COMPATIBILITY_WARNINGS", "1")
+//         .env(SPIN_LOCKED_URL, locked_url)
+//         .env(SPIN_WORKING_DIR, working_dir);
+
+//     let child = cmd
+//         .spawn()
+//         .map_err(|e| ComposeError::PrepareError(e.into()))?;
+
+//     // use tokio::io::AsyncWriteExt;
+
+//     // let mut input = child.stdin.take().unwrap();
+//     // input
+//     //     .write_all(&data)
+//     //     .await
+//     //     .map_err(|e| ComposeError::PrepareError(e.into()))?;
+//     // input
+//     //     .flush()
+//     //     .await
+//     //     .map_err(|e| ComposeError::PrepareError(e.into()))?;
+//     // drop(input);
+
+//     let trigger_out = child
+//         .wait_with_output()
+//         .await
+//         .map_err(|e| ComposeError::PrepareError(e.into()))?;
+
+//     if !trigger_out.status.success() {
+//         return Err(ComposeError::PrepareError(anyhow::anyhow!(
+//             "unable to compose additional components for {} using `{}`",
+//             c.id,
+//             resolve_extras_using
+//         )));
+//     }
+
+//     let complicated = trigger_out.stdout;
+//     Ok(complicated)
+// }
+
+async fn compose_trigger_extras_2(
     c: &LockedComponent,
     locked_url: &str,
     working_dir: &Path,
-    data: Vec<u8>,
 ) -> Result<Vec<u8>, spin_compose::ComposeError> {
     use spin_compose::ComposeError;
 
@@ -951,7 +1028,8 @@ async fn compose_trigger_extras(
         .get("resolve-extras-using")
         .and_then(|v| v.as_str())
     else {
-        return Result::<_, ComposeError>::Ok(data);
+        return spin_compose::compose(&ComponentSourceLoaderFs, &c, async |a| Ok(a)).await;
+        // return Result::<_, ComposeError>::Ok(data);
     };
 
     let resolver_subcmd = match resolve_extras_using {
@@ -961,31 +1039,17 @@ async fn compose_trigger_extras(
 
     let mut cmd = tokio::process::Command::new(std::env::current_exe().unwrap());
     cmd.args(resolver_subcmd)
-        .args(["--resolve-extras-only", "--resolve-extras-component-id"])
+        .args(["--precompose-only", "--precompose-component-id"])
         .arg(&c.id)
-        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
         .env("SPIN_PLUGINS_SUPPRESS_COMPATIBILITY_WARNINGS", "1")
         .env(SPIN_LOCKED_URL, locked_url)
         .env(SPIN_WORKING_DIR, working_dir);
 
-    let mut child = cmd
+    let child = cmd
         .spawn()
         .map_err(|e| ComposeError::PrepareError(e.into()))?;
-
-    use tokio::io::AsyncWriteExt;
-
-    let mut input = child.stdin.take().unwrap();
-    input
-        .write_all(&data)
-        .await
-        .map_err(|e| ComposeError::PrepareError(e.into()))?;
-    input
-        .flush()
-        .await
-        .map_err(|e| ComposeError::PrepareError(e.into()))?;
-    drop(input);
 
     let trigger_out = child
         .wait_with_output()

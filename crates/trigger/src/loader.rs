@@ -66,31 +66,8 @@ impl ComponentLoader {
             }
         }
     }
-}
 
-#[async_trait]
-impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for ComponentLoader {
-    async fn load_component(
-        &self,
-        engine: &wasmtime::Engine,
-        component: &AppComponent,
-        complicator: &impl spin_factors_executor::Complicator,
-    ) -> anyhow::Result<Component> {
-        let source = component
-            .source()
-            .content
-            .source
-            .as_ref()
-            .context("LockedComponentSource missing source field")?;
-        let path = parse_file_url(source)?;
-
-        #[cfg(feature = "unsafe-aot-compilation")]
-        if self.aot_compilation_enabled {
-            return self
-                .load_precompiled_component(engine, &path)
-                .with_context(|| format!("error deserializing component from {path:?}"));
-        }
-
+    pub(crate) async fn load_full(&self, component: &AppComponent<'_>, complicator: &impl spin_factors_executor::Complicator) -> anyhow::Result<Vec<u8>> {
         let loader = ComponentSourceLoaderFs;
 
         let empty: serde_json::Map<String, serde_json::Value> = Default::default();
@@ -118,6 +95,63 @@ impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for Comp
                     component.locked.id
                 )
             })?;
+
+        Ok(composed)
+    }
+}
+
+#[async_trait]
+impl<T: RuntimeFactors, U> spin_factors_executor::ComponentLoader<T, U> for ComponentLoader {
+    async fn load_component(
+        &self,
+        engine: &wasmtime::Engine,
+        component: &AppComponent,
+        complicator: &impl spin_factors_executor::Complicator,
+    ) -> anyhow::Result<Component> {
+        let source = component
+            .source()
+            .content
+            .source
+            .as_ref()
+            .context("LockedComponentSource missing source field")?;
+        let path = parse_file_url(source)?;
+
+        #[cfg(feature = "unsafe-aot-compilation")]
+        if self.aot_compilation_enabled {
+            return self
+                .load_precompiled_component(engine, &path)
+                .with_context(|| format!("error deserializing component from {path:?}"));
+        }
+
+        let composed = self.load_full(component, complicator).await?;
+
+        // let loader = ComponentSourceLoaderFs;
+
+        // let empty: serde_json::Map<String, serde_json::Value> = Default::default();
+        // let extras = component
+        //     .locked
+        //     .metadata
+        //     .get("trigger-extras")
+        //     .and_then(|v| v.as_object())
+        //     .unwrap_or(&empty);
+
+        // let complications = load_complications(component.app, extras, &loader).await?;
+
+        // let complicate = async |c: Vec<u8>| {
+        //     complicator
+        //         .complicate(&complications, c)
+        //         .await
+        //         .map_err(spin_compose::ComposeError::PrepareError)
+        // };
+
+        // let composed = spin_compose::compose(&loader, component.locked, complicate)
+        //     .await
+        //     .with_context(|| {
+        //         format!(
+        //             "failed to resolve dependencies for component {:?}",
+        //             component.locked.id
+        //         )
+        //     })?;
 
         spin_core::Component::new(engine, composed)
             .with_context(|| format!("failed to compile component from {}", quoted_path(&path)))
