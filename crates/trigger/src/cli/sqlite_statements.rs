@@ -109,7 +109,7 @@ mod tests {
 
     use spin_core::async_trait;
     use spin_factor_sqlite::{Connection, ConnectionCreator};
-    use spin_world::spin::sqlite::sqlite as v3;
+    use spin_world::spin::sqlite3_1_0::sqlite as v3;
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -183,9 +183,9 @@ mod tests {
         async fn create_connection(
             &self,
             label: &str,
-        ) -> Result<Box<dyn Connection + 'static>, v3::Error> {
+        ) -> Result<Arc<dyn Connection + 'static>, v3::Error> {
             self.push(label);
-            Ok(Box::new(MockConnection {
+            Ok(Arc::new(MockConnection {
                 tx: self.tx.clone(),
             }))
         }
@@ -208,6 +208,18 @@ mod tests {
                 columns: Vec::new(),
                 rows: Vec::new(),
             })
+        }
+
+        async fn query_async(
+            &self,
+            query: &str,
+            parameters: Vec<v3::Value>,
+        ) -> Result<(tokio::sync::oneshot::Receiver<Vec<String>>, tokio::sync::mpsc::Receiver<Result<v3::RowResult, v3::Error>>), v3::Error> {
+            self.tx.send(Action::Query(query.to_string())).unwrap();
+            let _ = parameters;
+            let (_ctx, crx) = tokio::sync::oneshot::channel();
+            let (_rtx, rrx) = tokio::sync::mpsc::channel(1);
+            Ok((crx, rrx))
         }
 
         async fn execute_batch(&self, statements: &str) -> anyhow::Result<()> {

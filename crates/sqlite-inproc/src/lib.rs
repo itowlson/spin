@@ -7,7 +7,8 @@ use std::{
 use anyhow::Context as _;
 use async_trait::async_trait;
 use spin_factor_sqlite::Connection;
-use spin_world::spin::sqlite::sqlite;
+use spin_world::spin::sqlite3_1_0::sqlite;
+use spin_world::spin::sqlite3_1_0::sqlite::{self as v3};
 
 /// The location of an in-process sqlite database.
 #[derive(Debug, Clone)]
@@ -93,6 +94,90 @@ impl Connection for InProcConnection {
             .map_err(|e| sqlite::Error::Io(e.to_string()))?
     }
 
+    async fn query_async(
+        &self,
+        query: &str,
+        parameters: Vec<v3::Value>,
+    ) -> Result<(tokio::sync::oneshot::Receiver<Vec<String>>, tokio::sync::mpsc::Receiver<Result<v3::RowResult, v3::Error>>), v3::Error> {
+        let connection = self.db_connection()?;
+        let query = query.to_owned();
+
+        // let conn = connection.lock().unwrap();
+        // let mut statement = conn
+        //     .prepare_cached(&query)
+        //     .map_err(|e| sqlite::Error::Io(e.to_string()))?;
+        // let columns = statement
+        //     .column_names()
+        //     .into_iter()
+        //     .map(ToOwned::to_owned)
+        //     .collect();
+
+        let (cols_tx, cols_rx) = tokio::sync::oneshot::channel();
+        let (rows_tx, rows_rx) = tokio::sync::mpsc::channel(100);
+        let (rows_sync_tx, rows_sync_rx) = std::sync::mpsc::channel();
+
+        tokio::spawn(async move {
+            let conn = connection.lock().unwrap();
+            let mut statement = match conn
+                .prepare_cached(&query) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        rows_sync_tx.send(Err(sqlite::Error::Io(e.to_string()))).unwrap();
+                        return;
+                    }
+                };
+            let columns: Vec<_> = statement
+                .column_names()
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect();
+            cols_tx.send(columns).unwrap();
+
+            let rows = statement
+                .query(rusqlite::params_from_iter(convert_data(parameters.into_iter())));
+
+            let mut rows = match rows {
+                Err(e) => {
+                    rows_sync_tx.send(Err(sqlite::Error::Io(e.to_string()))).unwrap();
+                    return;
+                },
+                Ok(r) => r,
+            };
+
+            loop {
+                let row = match rows.next() {
+                    Err(e) => {
+                        rows_sync_tx.send(Err(v3::Error::Io(e.to_string()))).unwrap();
+                        break;
+                    }
+                    Ok(None) => break,
+                    Ok(Some(r)) => r,
+                };
+
+                match convert_row(&row) {
+                    Ok(row) => rows_sync_tx.send(Ok(row)).unwrap(),
+                    Err(e) => {
+                        let err = v3::Error::Io(e.to_string());
+                        rows_sync_tx.send(Err(err)).unwrap();
+                    }
+                }
+            }
+        });
+        
+        tokio::spawn(async move {
+            loop {
+                match rows_sync_rx.recv_timeout(tokio::time::Duration::from_millis(1)) {
+                    Ok(r) => rows_tx.send(r).await.unwrap(),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => { tokio::task::yield_now().await; }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            
+        });
+
+        Ok((cols_rx, rows_rx))
+    }
+
     async fn execute_batch(&self, statements: &str) -> anyhow::Result<()> {
         let connection = self.db_connection()?;
         let statements = statements.to_owned();
@@ -126,6 +211,19 @@ impl Connection for InProcConnection {
     }
 }
 
+fn convert_row(row: &rusqlite::Row) -> Result<sqlite::RowResult, rusqlite::Error> {
+    let mut values = vec![];
+    for column in 0.. {
+        let value = row.get::<usize, ValueWrapper>(column);
+        if let Err(rusqlite::Error::InvalidColumnIndex(_)) = value {
+            break;
+        }
+        let value = value?.0;
+        values.push(value);
+    }
+    Ok(sqlite::RowResult { values })
+}
+
 // This function lives outside the query function to make it more readable.
 fn execute_query(
     connection: &Mutex<rusqlite::Connection>,
@@ -144,18 +242,7 @@ fn execute_query(
     let rows = statement
         .query_map(
             rusqlite::params_from_iter(convert_data(parameters.into_iter())),
-            |row| {
-                let mut values = vec![];
-                for column in 0.. {
-                    let value = row.get::<usize, ValueWrapper>(column);
-                    if let Err(rusqlite::Error::InvalidColumnIndex(_)) = value {
-                        break;
-                    }
-                    let value = value?.0;
-                    values.push(value);
-                }
-                Ok(sqlite::RowResult { values })
-            },
+            convert_row,
         )
         .map_err(|e| sqlite::Error::Io(e.to_string()))?;
     let rows = rows

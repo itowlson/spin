@@ -8781,11 +8781,13 @@ name = "spin-factor-sqlite"
 version = "3.7.0-pre0"
 dependencies = [
  "async-trait",
+ "spin-core",
  "spin-factor-otel",
  "spin-factors",
  "spin-factors-test",
  "spin-locked-app",
  "spin-resource-table",
+ "spin-wasi-async",
  "spin-world",
  "tokio",
  "tracing",

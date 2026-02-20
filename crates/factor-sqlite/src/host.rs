@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use spin_core::wasmtime;
+use spin_core::wasmtime::component::{Accessor, FutureReader, StreamReader};
 use spin_factor_otel::OtelFactorState;
 use spin_factors::wasmtime::component::Resource;
 use spin_factors::{anyhow, SelfInstanceBuilder};
-use spin_world::spin::sqlite::sqlite as v3;
+use spin_world::spin::sqlite3_1_0::sqlite as v3;
 use spin_world::v1::sqlite as v1;
 use spin_world::v2::sqlite as v2;
 use tracing::field::Empty;
@@ -15,7 +17,7 @@ use crate::{Connection, ConnectionCreator};
 pub struct InstanceState {
     allowed_databases: Arc<HashSet<String>>,
     /// A resource table of connections.
-    connections: spin_resource_table::Table<Box<dyn Connection>>,
+    connections: spin_resource_table::Table<Arc<dyn Connection>>,
     /// A map from database label to connection creators.
     connection_creators: HashMap<String, Arc<dyn ConnectionCreator>>,
     otel: OtelFactorState,
@@ -42,10 +44,10 @@ impl InstanceState {
     fn get_connection<T: 'static>(
         &self,
         connection: Resource<T>,
-    ) -> Result<&dyn Connection, v3::Error> {
+    ) -> Result<Arc<dyn Connection>, v3::Error> {
         self.connections
             .get(connection.rep())
-            .map(|conn| conn.as_ref())
+            .cloned()
             .ok_or(v3::Error::InvalidConnection)
     }
 
@@ -146,6 +148,109 @@ impl v3::HostConnection for InstanceState {
     async fn drop(&mut self, connection: Resource<v3::Connection>) -> anyhow::Result<()> {
         let _ = self.connections.remove(connection.rep());
         Ok(())
+    }
+}
+
+impl v3::HostConnectionWithStore for crate::SqliteFactorData {
+    async fn open_async<T>(accessor: &Accessor<T, Self>, database: String) -> Result<Resource<v3::Connection>, v3::Error> {
+        // TODO: this duplicates `open_impl` logic but split up to move
+        // in and out of the Accessor. How to dedupe?
+        let conn_creator = accessor.with(|mut access| {
+            let host = access.get();
+            if !host.allowed_databases.contains(&database) {
+                return Err(v3::Error::AccessDenied);
+            }
+            host
+                .connection_creators
+                .get(&database)
+                .ok_or(v3::Error::NoSuchDatabase)
+                .cloned()
+        })?;
+
+        let conn = conn_creator.create_connection(&database).await?;
+
+        tracing::Span::current().record(
+            "sqlite.backend",
+            conn.summary().as_deref().unwrap_or("unknown"),
+        );
+
+        let resource = accessor.with(|mut access| {
+            let host = access.get();
+            host.connections
+                .push(conn)
+                .map_err(|()| v3::Error::Io("too many connections opened".to_string()))
+                .map(Resource::new_own)
+        });
+
+        resource
+    }
+
+    async fn execute_async<T>(accessor: &Accessor<T, Self>, connection: Resource<v3::Connection>, query: String, parameters: Vec<v3::Value>)
+        -> Result<(FutureReader<Vec<String>>, StreamReader<Result<v3::RowResult, v3::Error>>), v3::Error>
+    {
+        use wasmtime::AsContextMut;
+
+        let conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.get_connection(connection)
+        })?;
+
+        tracing::Span::current().record(
+            "sqlite.backend",
+            conn.summary().as_deref().unwrap_or("unknown"),
+        );
+
+        let (cols_rx, rows_rx) = conn.query_async(&query, parameters).await?;
+        let col_producer = spin_wasi_async::future::producer(cols_rx);
+        let row_producer = spin_wasi_async::stream::producer(rows_rx);
+
+        let (fr, sr) = accessor.with(|mut access| {
+            let fr = FutureReader::new(access.as_context_mut(), col_producer);
+            let sr = StreamReader::new(access.as_context_mut(), row_producer);
+            (fr, sr)
+        });
+
+        Ok((fr, sr))
+    }
+
+    async fn changes_async<T>(
+        accessor: &Accessor<T, Self>,
+        connection: Resource<v3::Connection>,
+    ) -> spin_factors::wasmtime::Result<u64> {
+        let conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.get_connection(connection)
+        });
+
+        let conn = match conn {
+            Ok(c) => c,
+            Err(err) => return Err(err.into()),
+        };
+        tracing::Span::current().record(
+            "sqlite.backend",
+            conn.summary().as_deref().unwrap_or("unknown"),
+        );
+        conn.changes().await.map_err(|e| e.into())
+    }
+
+    async fn last_insert_rowid_async<T>(
+        accessor: &Accessor<T, Self>,
+        connection: Resource<v3::Connection>,
+    ) -> spin_factors::wasmtime::Result<i64> {
+        let conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.get_connection(connection)
+        });
+
+        let conn = match conn {
+            Ok(c) => c,
+            Err(err) => return Err(err.into()),
+        };
+        tracing::Span::current().record(
+            "sqlite.backend",
+            conn.summary().as_deref().unwrap_or("unknown"),
+        );
+        conn.last_insert_rowid().await.map_err(|e| e.into())
     }
 }
 

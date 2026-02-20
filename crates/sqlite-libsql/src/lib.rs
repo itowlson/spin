@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use anyhow::Context;
 use async_trait::async_trait;
 use spin_factor_sqlite::Connection;
-use spin_world::spin::sqlite::sqlite as v3;
-use spin_world::spin::sqlite::sqlite::{self, RowResult};
+use spin_world::spin::sqlite3_1_0::sqlite as v3;
+use spin_world::spin::sqlite3_1_0::sqlite::{self, RowResult};
 use tokio::sync::OnceCell;
 
 /// A lazy wrapper around a [`LibSqlConnection`] that implements the [`Connection`] trait.
@@ -12,7 +14,7 @@ pub struct LazyLibSqlConnection {
     // Since the libSQL client can only be created asynchronously, we wait until
     // we're in the `Connection` implementation to create. Since we only want to do
     // this once, we use a `OnceCell` to store it.
-    inner: OnceCell<LibSqlConnection>,
+    inner: OnceCell<Arc<LibSqlConnection>>,
 }
 
 impl LazyLibSqlConnection {
@@ -24,12 +26,13 @@ impl LazyLibSqlConnection {
         }
     }
 
-    pub async fn get_or_create_connection(&self) -> Result<&LibSqlConnection, v3::Error> {
+    pub async fn get_or_create_connection(&self) -> Result<&Arc<LibSqlConnection>, v3::Error> {
         self.inner
             .get_or_try_init(|| async {
                 LibSqlConnection::create(self.url.clone(), self.token.clone())
                     .await
                     .context("failed to create SQLite client")
+                    .map(Arc::new)
             })
             .await
             .map_err(|_| v3::Error::InvalidConnection)
@@ -45,6 +48,54 @@ impl Connection for LazyLibSqlConnection {
     ) -> Result<v3::QueryResult, v3::Error> {
         let client = self.get_or_create_connection().await?;
         client.query(query, parameters).await
+    }
+
+    async fn query_async(
+        &self,
+        query: &str,
+        parameters: Vec<v3::Value>,
+    ) -> Result<(tokio::sync::oneshot::Receiver<Vec<String>>, tokio::sync::mpsc::Receiver<Result<v3::RowResult, v3::Error>>), v3::Error> {
+        let client = self.get_or_create_connection().await?.clone();
+        let query = query.to_string();
+
+        let (cols_tx, cols_rx) = tokio::sync::oneshot::channel();
+        let (rows_tx, rows_rx) = tokio::sync::mpsc::channel(100);
+
+        tokio::spawn(async move {
+            let result = client
+                .inner
+                .query(&query, convert_parameters(&parameters))
+                .await
+                .map_err(|e| sqlite::Error::Io(e.to_string()));
+
+            let mut rows = match result {
+                Ok(r) => r,
+                Err(e) => {
+                    rows_tx.send(Err(e)).await.unwrap();
+                    return;
+                }
+            };
+
+            let columns = columns(&rows);
+            cols_tx.send(columns).unwrap();
+
+            let column_count = rows.column_count();
+
+            loop {
+                let row = match rows.next().await {
+                    Ok(Some(r)) => r,
+                    Ok(None) => break,
+                    Err(e) => {
+                        rows_tx.send(Err(v3::Error::Io(e.to_string()))).await.unwrap();
+                        break;
+                    }
+                };
+                let row = convert_row(row, column_count);
+                rows_tx.send(Ok(row)).await.unwrap();
+            }
+        });
+
+        Ok((cols_rx, rows_rx))
     }
 
     async fn execute_batch(&self, statements: &str) -> anyhow::Result<()> {

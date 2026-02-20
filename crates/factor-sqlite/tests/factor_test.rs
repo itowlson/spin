@@ -9,7 +9,7 @@ use spin_factors::{
     RuntimeFactors,
 };
 use spin_factors_test::{toml, TestEnvironment};
-use spin_world::{async_trait, spin::sqlite::sqlite as v3, v2::sqlite as v2};
+use spin_world::{async_trait, spin::sqlite3_1_0::sqlite as v3, v2::sqlite as v2};
 use v2::HostConnection as _;
 
 #[derive(RuntimeFactors)]
@@ -103,9 +103,9 @@ impl spin_factor_sqlite::ConnectionCreator for MockConnectionCreator {
     async fn create_connection(
         &self,
         label: &str,
-    ) -> Result<Box<dyn spin_factor_sqlite::Connection + 'static>, v3::Error> {
+    ) -> Result<Arc<dyn spin_factor_sqlite::Connection + 'static>, v3::Error> {
         let _ = label;
-        Ok(Box::new(MockConnection))
+        Ok(Arc::new(MockConnection))
     }
 }
 
@@ -119,6 +119,15 @@ impl spin_factor_sqlite::Connection for MockConnection {
         query: &str,
         parameters: Vec<v3::Value>,
     ) -> Result<v3::QueryResult, v3::Error> {
+        let _ = (query, parameters);
+        Err(v3::Error::Io("Mock connection".into()))
+    }
+
+    async fn query_async(
+        &self,
+        query: &str,
+        parameters: Vec<v3::Value>,
+    ) -> Result<(tokio::sync::oneshot::Receiver<Vec<String>>, tokio::sync::mpsc::Receiver<Result<v3::RowResult, v3::Error>>), v3::Error> {
         let _ = (query, parameters);
         Err(v3::Error::Io("Mock connection".into()))
     }
