@@ -1,10 +1,11 @@
 use super::{Cas, SwapError};
 use anyhow::{Context, Result};
-use spin_core::{async_trait, wasmtime::component::Resource};
+use spin_core::{async_trait, wasmtime, wasmtime::component::{Accessor, Resource}};
 use spin_factor_otel::OtelFactorState;
 use spin_resource_table::Table;
 use spin_telemetry::traces::{self, Blame};
 use spin_world::v2::key_value;
+use spin_world::spin::key_value::key_value as v3;
 use spin_world::wasi::keyvalue as wasi_keyvalue;
 use std::{collections::HashSet, sync::Arc};
 use tracing::instrument;
@@ -200,11 +201,93 @@ impl key_value::HostStore for KeyValueDispatch {
     }
 }
 
+impl spin_core::wasmtime::component::HasData for KeyValueDispatch {
+    type Data<'a> = &'a mut KeyValueDispatch;
+}
+
+impl v3::Host for KeyValueDispatch {
+
+}
+
+impl v3::HostStore for KeyValueDispatch {
+    async fn drop(&mut self, rep: Resource<v3::Store>) -> Result<()> {
+        todo!()
+    }
+}
+
+impl v3::HostStoreWithStore for crate::KeyValueFactorData {
+    async fn open<T>(accessor: &Accessor<T, Self>, label: String,) -> Result<Result<Resource<v3::Store>, v3::Error>> {
+        let (allowed, manager) = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            (host.allowed_stores.contains(&label), host.manager.clone())
+        });
+
+        if !allowed {
+            return Ok(Err(v3::Error::AccessDenied));
+        }
+
+        let store = manager.get(&label).await?;
+        store.after_open().await?;
+
+        let rsrc = accessor.with(|mut access| {
+            let host = access.get();
+            host
+                .stores
+                .push(store)
+                .map(Resource::new_own)
+                .map_err(|()| v3::Error::StoreTableFull)
+        });
+        
+        Ok(rsrc)
+    }
+
+    async fn get<T>(accessor: &Accessor<T, Self>, store: Resource<v3::Store>, key: String) -> Result<Result<Option<Vec<u8>>, v3::Error>> {
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_store(store).cloned()
+        })?;
+        Ok(store.get(&key).await.map_err(to_v3_err).map_err(track_error_on_span_v3))
+    }
+
+    async fn set<T>(accessor: &Accessor<T, Self>, store: Resource<v3::Store>, key: String, value: Vec<u8>) -> Result<Result<(),v3::Error>> {
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_store(store).cloned()
+        })?;
+        Ok(store.set(&key, &value).await.map_err(to_v3_err).map_err(track_error_on_span_v3))
+    }
+
+    async fn delete<T>(accessor: &Accessor<T,Self>, self_: Resource<v3::Store>, key: String) -> Result<Result<(),v3::Error>> {
+        todo!()
+    }
+
+    async fn exists<T>(accessor: &Accessor<T,Self>, self_: Resource<v3::Store>, key: String) -> Result<Result<bool,v3::Error>> {
+        todo!()
+    }
+
+    async fn get_keys<T>(accessor: &Accessor<T,Self>, self_: Resource<v3::Store>) -> Result<Result<Vec<String>,v3::Error>> {
+        todo!()
+    }
+}
+
 /// Make sure that infrastructure related errors are tracked in the current span.
 fn track_error_on_span(err: Error) -> Error {
     let blame = match err {
         Error::NoSuchStore | Error::AccessDenied => Blame::Guest,
         Error::StoreTableFull | Error::Other(_) => Blame::Host,
+    };
+    traces::mark_as_error(&err, Some(blame));
+    err
+}
+
+/// Make sure that infrastructure related errors are tracked in the current span.
+fn track_error_on_span_v3(err: v3::Error) -> v3::Error {
+    let blame = match err {
+        v3::Error::NoSuchStore | v3::Error::AccessDenied => Blame::Guest,
+        v3::Error::StoreTableFull | v3::Error::Other(_) => Blame::Host,
     };
     traces::mark_as_error(&err, Some(blame));
     err
@@ -216,6 +299,15 @@ fn to_wasi_err(e: Error) -> wasi_keyvalue::store::Error {
         Error::NoSuchStore => wasi_keyvalue::store::Error::NoSuchStore,
         Error::StoreTableFull => wasi_keyvalue::store::Error::Other("store table full".to_string()),
         Error::Other(msg) => wasi_keyvalue::store::Error::Other(msg),
+    }
+}
+
+fn to_v3_err(e: Error) -> v3::Error {
+    match track_error_on_span(e) {
+        Error::AccessDenied => v3::Error::AccessDenied,
+        Error::NoSuchStore => v3::Error::NoSuchStore,
+        Error::StoreTableFull => v3::Error::StoreTableFull,
+        Error::Other(msg) => v3::Error::Other(msg),
     }
 }
 

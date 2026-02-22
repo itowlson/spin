@@ -43,6 +43,7 @@ impl Factor for KeyValueFactor {
     fn init(&mut self, ctx: &mut impl InitContext<Self>) -> anyhow::Result<()> {
         ctx.link_bindings(spin_world::v1::key_value::add_to_linker::<_, FactorData<Self>>)?;
         ctx.link_bindings(spin_world::v2::key_value::add_to_linker::<_, FactorData<Self>>)?;
+        ctx.link_bindings(spin_world::spin::key_value::key_value::add_to_linker::<_, KeyValueFactorData>)?;
         ctx.link_bindings(spin_world::wasi::keyvalue::store::add_to_linker::<_, FactorData<Self>>)?;
         ctx.link_bindings(spin_world::wasi::keyvalue::batch::add_to_linker::<_, FactorData<Self>>)?;
         ctx.link_bindings(
@@ -199,4 +200,10 @@ impl FactorInstanceBuilder for InstanceBuilder {
             otel,
         ))
     }
+}
+
+pub struct KeyValueFactorData(KeyValueFactor);
+
+impl spin_core::wasmtime::component::HasData for KeyValueFactorData {
+    type Data<'a> = &'a mut KeyValueDispatch;
 }
