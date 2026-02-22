@@ -1,6 +1,6 @@
 use super::{Cas, SwapError};
 use anyhow::{Context, Result};
-use spin_core::{async_trait, wasmtime, wasmtime::component::{Accessor, Resource}};
+use spin_core::{async_trait, wasmtime::component::{Accessor, Resource}};
 use spin_factor_otel::OtelFactorState;
 use spin_resource_table::Table;
 use spin_telemetry::traces::{self, Blame};
@@ -210,8 +210,9 @@ impl v3::Host for KeyValueDispatch {
 }
 
 impl v3::HostStore for KeyValueDispatch {
-    async fn drop(&mut self, rep: Resource<v3::Store>) -> Result<()> {
-        todo!()
+    async fn drop(&mut self, store: Resource<v3::Store>) -> Result<()> {
+        self.stores.remove(store.rep());
+        Ok(())
     }
 }
 
@@ -260,16 +261,31 @@ impl v3::HostStoreWithStore for crate::KeyValueFactorData {
         Ok(store.set(&key, &value).await.map_err(to_v3_err).map_err(track_error_on_span_v3))
     }
 
-    async fn delete<T>(accessor: &Accessor<T,Self>, self_: Resource<v3::Store>, key: String) -> Result<Result<(),v3::Error>> {
-        todo!()
+    async fn delete<T>(accessor: &Accessor<T,Self>, store: Resource<v3::Store>, key: String) -> Result<Result<(),v3::Error>> {
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_store(store).cloned()
+        })?;
+        Ok(store.delete(&key).await.map_err(to_v3_err).map_err(track_error_on_span_v3))
     }
 
-    async fn exists<T>(accessor: &Accessor<T,Self>, self_: Resource<v3::Store>, key: String) -> Result<Result<bool,v3::Error>> {
-        todo!()
+    async fn exists<T>(accessor: &Accessor<T, Self>, store: Resource<v3::Store>, key: String) -> Result<Result<bool,v3::Error>> {
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_store(store).cloned()
+        })?;
+        Ok(store.exists(&key).await.map_err(to_v3_err).map_err(track_error_on_span_v3))
     }
 
-    async fn get_keys<T>(accessor: &Accessor<T,Self>, self_: Resource<v3::Store>) -> Result<Result<Vec<String>,v3::Error>> {
-        todo!()
+    async fn get_keys<T>(accessor: &Accessor<T, Self>, store: Resource<v3::Store>) -> Result<Result<Vec<String>,v3::Error>> {
+        let store = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_store(store).cloned()
+        })?;
+        Ok(store.get_keys().await.map_err(to_v3_err).map_err(track_error_on_span_v3))
     }
 }
 
