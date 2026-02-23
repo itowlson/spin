@@ -7,6 +7,7 @@ use spin_factors::{
     anyhow, ConfigureAppContext, Factor, FactorData, PrepareContext, RuntimeFactors,
     SelfInstanceBuilder,
 };
+use spin_world::spin::redis::redis as v3;
 
 /// The [`Factor`] for `fermyon:spin/outbound-redis`.
 #[derive(Default)]
@@ -28,6 +29,7 @@ impl Factor for OutboundRedisFactor {
     fn init(&mut self, ctx: &mut impl spin_factors::InitContext<Self>) -> anyhow::Result<()> {
         ctx.link_bindings(spin_world::v1::redis::add_to_linker::<_, FactorData<Self>>)?;
         ctx.link_bindings(spin_world::v2::redis::add_to_linker::<_, FactorData<Self>>)?;
+        ctx.link_bindings(v3::add_to_linker::<_, RedisFactorData>)?;
         Ok(())
     }
 
@@ -55,3 +57,9 @@ impl Factor for OutboundRedisFactor {
 }
 
 impl SelfInstanceBuilder for InstanceState {}
+
+pub struct RedisFactorData(OutboundRedisFactor);
+
+impl spin_core::wasmtime::component::HasData for RedisFactorData {
+    type Data<'a> = &'a mut InstanceState;
+}

@@ -4,7 +4,8 @@ use anyhow::Result;
 use redis::io::AsyncDNSResolver;
 use redis::AsyncConnectionConfig;
 use redis::{aio::MultiplexedConnection, AsyncCommands, FromRedisValue, Value};
-use spin_core::wasmtime::component::Resource;
+use spin_core::wasmtime;
+use spin_core::wasmtime::component::{Accessor, Resource};
 use spin_factor_otel::OtelFactorState;
 use spin_factor_outbound_networking::config::allowed_hosts::OutboundAllowedHosts;
 use spin_factor_outbound_networking::config::blocked_networks::BlockedNetworks;
@@ -12,6 +13,7 @@ use spin_world::v1::{redis as v1, redis_types};
 use spin_world::v2::redis::{
     self as v2, Connection as RedisConnection, Error, RedisParameter, RedisResult,
 };
+use super::v3;
 use tracing::field::Empty;
 use tracing::{instrument, Level};
 
@@ -53,6 +55,18 @@ impl InstanceState {
             .ok_or(Error::Other(
                 "could not find connection for resource".into(),
             ))
+    }
+
+    fn get_conn_v3(
+        &mut self,
+        connection: Resource<v3::Connection>,
+    ) -> Result<MultiplexedConnection, v3::Error> {
+        self.connections
+            .get_mut(connection.rep())
+            .ok_or(v3::Error::Other(
+                "could not find connection for resource".into(),
+            ))
+            .cloned()
     }
 }
 
@@ -230,8 +244,181 @@ impl v2::HostConnection for crate::InstanceState {
     }
 }
 
+impl v3::Host for InstanceState {
+    fn convert_error(&mut self, err: v3::Error) -> anyhow::Result<v3::Error> {
+        Ok(err)
+    }
+}
+
+impl v3::HostConnection for InstanceState {
+    async fn drop(&mut self, connection: Resource<v3::Connection>) -> anyhow::Result<()> {
+        self.connections.remove(connection.rep());
+        Ok(())
+    }
+}
+
+impl v3::HostConnectionWithStore for super::RedisFactorData {
+    async fn open<T>(accessor: &Accessor<T, Self>, address: String) -> Result<Resource<v3::Connection>, v3::Error> {
+        let (allowed_hosts, blocked_networks) = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            (host.allowed_hosts.clone(), host.blocked_networks.clone())
+        });
+
+        if !allowed_hosts.check_url(&address, "redis").await.map_err(|e| v3::Error::Other(e.to_string()))? {
+            return Err(v3::Error::InvalidAddress);
+        }
+
+        let config = AsyncConnectionConfig::new()
+            .set_dns_resolver(SpinDnsResolver(blocked_networks));
+        let conn = redis::Client::open(address.as_str())
+            .map_err(|_| v3::Error::InvalidAddress)?
+            .get_multiplexed_async_connection_with_config(&config)
+            .await
+            .map_err(other_error_v3)?;
+
+        let resource = accessor.with(|mut access| {
+            let host = access.get();
+            host.connections
+                .push(conn)
+                .map(Resource::new_own)
+                .map_err(|_| v3::Error::TooManyConnections)
+        })?;
+
+        Ok(resource)
+    }
+
+    async fn publish<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,channel:String,payload:v3::Payload,) -> Result<(),v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        // The `let () =` syntax is needed to suppress a warning when the result type is inferred.
+        // You can read more about the issue here: <https://github.com/redis-rs/redis-rs/issues/1228>
+        let () = conn
+            .publish(&channel, &payload)
+            .await
+            .map_err(other_error_v3)?;
+        Ok(())
+    }
+
+    async fn get<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,key:String,) -> Result<Option<v3::Payload>,v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        let value = conn.get(&key).await.map_err(other_error_v3)?;
+        Ok(value)
+    }
+
+    async fn set<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,key:String,value:v3::Payload,) -> Result<(),v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        // The `let () =` syntax is needed to suppress a warning when the result type is inferred.
+        // You can read more about the issue here: <https://github.com/redis-rs/redis-rs/issues/1228>
+        let () = conn.set(&key, &value).await.map_err(other_error_v3)?;
+        Ok(())
+    }
+
+    async fn incr<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,key:String,) -> Result<i64,v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        let value = conn.incr(&key, 1).await.map_err(other_error_v3)?;
+        Ok(value)
+    }
+
+    async fn del<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,keys:Vec<String>,) -> Result<u32,v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        let value = conn.del(&keys).await.map_err(other_error_v3)?;
+        Ok(value)
+    }
+
+    async fn sadd<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,key:String,values:Vec<String>,) -> Result<u32,v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        let value = conn.sadd(&key, &values).await.map_err(|e| {
+            if e.kind() == redis::ErrorKind::TypeError {
+                v3::Error::TypeError
+            } else {
+                v3::Error::Other(e.to_string())
+            }
+        })?;
+        Ok(value)
+    }
+
+    async fn smembers<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,key:String,) -> Result<wasmtime::component::__internal::Vec<String>,v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        let value = conn.smembers(&key).await.map_err(other_error_v3)?;
+        Ok(value)
+    }
+
+    async fn srem<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,key:String,values:Vec<String>,) -> Result<u32,v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        let value = conn.srem(&key, &values).await.map_err(other_error_v3)?;
+        Ok(value)
+    }
+
+    async fn execute<T>(accessor: &Accessor<T,Self>, connection:Resource<v3::Connection>,command:String,arguments:Vec<v3::RedisParameter>,) -> Result<Vec<v3::RedisResult>,v3::Error> {
+        let mut conn = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            host.get_conn_v3(connection)
+        })?;
+
+        let mut cmd = redis::cmd(&command);
+        arguments.iter().for_each(|value| match value {
+            v3::RedisParameter::Int64(v) => {
+                cmd.arg(v);
+            }
+            v3::RedisParameter::Binary(v) => {
+                cmd.arg(v);
+            }
+        });
+
+        cmd.query_async::<RedisResultsV3>(&mut conn)
+            .await
+            .map(|values| values.0)
+            .map_err(other_error_v3)
+    }
+}
+
 fn other_error(e: impl std::fmt::Display) -> Error {
     Error::Other(e.to_string())
+}
+
+fn other_error_v3(e: impl std::fmt::Display) -> v3::Error {
+    v3::Error::Other(e.to_string())
 }
 
 /// Delegate a function call to the v2::HostConnection implementation
@@ -320,6 +507,7 @@ impl redis_types::Host for crate::InstanceState {
 }
 
 struct RedisResults(Vec<RedisResult>);
+struct RedisResultsV3(Vec<v3::RedisResult>);
 
 impl FromRedisValue for RedisResults {
     fn from_redis_value(value: &Value) -> redis::RedisResult<Self> {
@@ -390,6 +578,22 @@ impl FromRedisValue for RedisResults {
         let mut values = Vec::new();
         append(&mut values, value)?;
         Ok(RedisResults(values))
+    }
+}
+
+impl FromRedisValue for RedisResultsV3 {
+    fn from_redis_value(v: &Value) -> redis::RedisResult<Self> {
+        let results = <RedisResults as FromRedisValue>::from_redis_value(v)?;
+        Ok(Self(results.0.into_iter().map(v2_value_to_v3).collect()))
+    }
+}
+
+fn v2_value_to_v3(v: RedisResult) -> v3::RedisResult {
+    match v {
+        RedisResult::Nil => v3::RedisResult::Nil,
+        RedisResult::Status(v) => v3::RedisResult::Status(v),
+        RedisResult::Int64(v) => v3::RedisResult::Int64(v),
+        RedisResult::Binary(v) => v3::RedisResult::Binary(v),
     }
 }
 

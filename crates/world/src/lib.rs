@@ -37,6 +37,7 @@ wasmtime::component::bindgen!({
         "spin:postgres/postgres@3.0.0.error" => spin::postgres3_0_0::postgres::Error,
         "spin:postgres/postgres@4.0.0.error" => spin::postgres4_0_0::postgres::Error,
         "spin:postgres/postgres@4.2.0.error" => spin::postgres4_2_0::postgres::Error,
+        "spin:redis/redis@3.0.0.error" => spin::redis::redis::Error,
         "spin:sqlite/sqlite@3.1.0.error" => spin::sqlite3_1_0::sqlite::Error,
         "spin:variables/variables@3.0.0.error" => spin::variables::variables::Error,
         "wasi:config/store@0.2.0-draft-2024-09-27.error" => wasi::config::store::Error,
