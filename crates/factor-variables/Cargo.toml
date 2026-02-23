@@ -5,10 +5,12 @@ authors = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+spin-core = { path = "../core" }
 spin-expressions = { path = "../expressions" }
 spin-factor-otel = { path = "../factor-otel" }
 spin-factors = { path = "../factors" }
 spin-telemetry = { path = "../telemetry" }
+spin-wasi-async = { path = "../wasi-async" }
 spin-world = { path = "../world" }
 tracing = { workspace = true }
 

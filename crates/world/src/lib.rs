@@ -38,6 +38,7 @@ wasmtime::component::bindgen!({
         "spin:postgres/postgres@4.0.0.error" => spin::postgres4_0_0::postgres::Error,
         "spin:postgres/postgres@4.2.0.error" => spin::postgres4_2_0::postgres::Error,
         "spin:sqlite/sqlite@3.1.0.error" => spin::sqlite3_1_0::sqlite::Error,
+        "spin:variables/variables@3.0.0.error" => spin::variables::variables::Error,
         "wasi:config/store@0.2.0-draft-2024-09-27.error" => wasi::config::store::Error,
         "wasi:keyvalue/store.error" => wasi::keyvalue::store::Error,
         "wasi:keyvalue/atomics.cas-error" => wasi::keyvalue::atomics::CasError,

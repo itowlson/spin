@@ -1,6 +1,7 @@
+use spin_core::wasmtime::{self, component::Accessor};
 use spin_factors::anyhow;
 use spin_telemetry::traces::{self, Blame};
-use spin_world::{v1, v2::variables, wasi::config as wasi_config};
+use spin_world::{v1, v2::variables, wasi::config as wasi_config, spin::variables::variables as v3};
 use tracing::instrument;
 
 use crate::InstanceState;
@@ -74,6 +75,26 @@ impl wasi_config::store::Host for InstanceState {
     }
 }
 
+impl v3::Host for InstanceState {
+    fn convert_error(&mut self, err: v3::Error) -> wasmtime::Result<v3::Error> {
+        Ok(err)
+    }
+}
+
+impl v3::HostWithStore for super::VariablesFactorData {
+    async fn get<T>(accessor: &Accessor<T, Self>, key: String) -> Result<String, v3::Error> {
+        let (resolver, component_id) = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            (host.expression_resolver.clone(), host.component_id.clone())
+        });
+
+        let key = spin_expressions::Key::new(&key).map_err(expressions_to_variables_err_v3)?;
+
+        resolver.resolve(&component_id, key).await.map_err(expressions_to_variables_err_v3)
+    }
+}
+
 /// Convert a `spin_expressions::Error` to a `variables::Error`, setting the current span's status and fault attribute.
 fn expressions_to_variables_err(err: spin_expressions::Error) -> variables::Error {
     use spin_expressions::Error;
@@ -87,5 +108,21 @@ fn expressions_to_variables_err(err: spin_expressions::Error) -> variables::Erro
         Error::Undefined(msg) => variables::Error::Undefined(msg),
         Error::InvalidTemplate(_) => variables::Error::Other(format!("{err}")),
         Error::Provider(err) => variables::Error::Provider(err.to_string()),
+    }
+}
+
+/// Convert a `spin_expressions::Error` to a `variables::Error`, setting the current span's status and fault attribute.
+fn expressions_to_variables_err_v3(err: spin_expressions::Error) -> v3::Error {
+    use spin_expressions::Error;
+    let blame = match err {
+        Error::InvalidName(_) | Error::InvalidTemplate(_) | Error::Undefined(_) => Blame::Guest,
+        Error::Provider(_) => Blame::Host,
+    };
+    traces::mark_as_error(&err, Some(blame));
+    match err {
+        Error::InvalidName(msg) => v3::Error::InvalidName(msg),
+        Error::Undefined(msg) => v3::Error::Undefined(msg),
+        Error::InvalidTemplate(_) => v3::Error::Other(format!("{err}")),
+        Error::Provider(err) => v3::Error::Provider(err.to_string()),
     }
 }
