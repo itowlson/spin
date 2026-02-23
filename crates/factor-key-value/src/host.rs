@@ -1,6 +1,6 @@
 use super::{Cas, SwapError};
 use anyhow::{Context, Result};
-use spin_core::{async_trait, wasmtime::component::{Accessor, Resource}};
+use spin_core::{async_trait, wasmtime::{AsContextMut, component::{Accessor, Resource, StreamReader}}};
 use spin_factor_otel::OtelFactorState;
 use spin_resource_table::Table;
 use spin_telemetry::traces::{self, Blame};
@@ -38,6 +38,7 @@ pub trait Store: Sync + Send {
     async fn delete(&self, key: &str) -> Result<(), Error>;
     async fn exists(&self, key: &str) -> Result<bool, Error>;
     async fn get_keys(&self) -> Result<Vec<String>, Error>;
+    async fn get_keys_async(&self) -> Result<tokio::sync::mpsc::Receiver<Result<String, v3::Error>>, v3::Error>;
     async fn get_many(&self, keys: Vec<String>) -> Result<Vec<(String, Option<Vec<u8>>)>, Error>;
     async fn set_many(&self, key_values: Vec<(String, Vec<u8>)>) -> Result<(), Error>;
     async fn delete_many(&self, keys: Vec<String>) -> Result<(), Error>;
@@ -279,13 +280,21 @@ impl v3::HostStoreWithStore for crate::KeyValueFactorData {
         Ok(store.exists(&key).await.map_err(to_v3_err).map_err(track_error_on_span_v3))
     }
 
-    async fn get_keys<T>(accessor: &Accessor<T, Self>, store: Resource<v3::Store>) -> Result<Result<Vec<String>,v3::Error>> {
+    async fn get_keys<T>(accessor: &Accessor<T, Self>, store: Resource<v3::Store>,) -> Result<Result<StreamReader<Result<String, v3::Error>>, v3::Error>> {
         let store = accessor.with(|mut access| {
             let host = access.get();
             host.otel.reparent_tracing_span();
             host.get_store(store).cloned()
         })?;
-        Ok(store.get_keys().await.map_err(to_v3_err).map_err(track_error_on_span_v3))
+
+        let rx = store.get_keys_async().await?;
+
+        let producer = spin_wasi_async::stream::producer(rx);
+        let reader = accessor.with(|mut access| {
+            StreamReader::new(access.as_context_mut(), producer)
+        });
+
+        Ok(Ok(reader))
     }
 }
 
@@ -318,7 +327,7 @@ fn to_wasi_err(e: Error) -> wasi_keyvalue::store::Error {
     }
 }
 
-fn to_v3_err(e: Error) -> v3::Error {
+pub fn to_v3_err(e: Error) -> v3::Error {
     match track_error_on_span(e) {
         Error::AccessDenied => v3::Error::AccessDenied,
         Error::NoSuchStore => v3::Error::NoSuchStore,
@@ -559,6 +568,11 @@ impl wasi_keyvalue::atomics::Host for KeyValueDispatch {
 pub fn log_error(err: impl std::fmt::Debug) -> Error {
     tracing::warn!("key-value error: {err:?}");
     Error::Other(format!("{err:?}"))
+}
+
+pub fn log_error_v3(err: impl std::fmt::Debug) -> v3::Error {
+    tracing::warn!("key-value error: {err:?}");
+    v3::Error::Other(format!("{err:?}"))
 }
 
 pub fn log_cas_error(err: impl std::fmt::Debug) -> SwapError {

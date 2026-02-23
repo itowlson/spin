@@ -27,8 +27,7 @@ interface key-value {
     exists: async func(key: string) -> result<bool, error>;
 
     /// Return a list of all the keys
-    // TODO: can this be a stream?
-    get-keys: async func() -> result<list<string>, error>;
+    get-keys: async func() -> result<stream<result<string, error>>, error>;
   }
 
   /// The set of errors which may be raised by functions in this interface

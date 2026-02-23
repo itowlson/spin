@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use redis::{aio::ConnectionManager, parse_redis_url, AsyncCommands, Client, RedisError};
 use spin_core::async_trait;
-use spin_factor_key_value::{log_error, Cas, Error, Store, StoreManager, SwapError};
+use spin_factor_key_value::{Cas, Error, Store, StoreManager, SwapError, log_error, log_error_v3, v3};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use url::Url;
@@ -94,6 +94,30 @@ impl Store for RedisStore {
 
     async fn get_keys(&self) -> Result<Vec<String>, Error> {
         self.connection.clone().keys("*").await.map_err(log_error)
+    }
+
+    async fn get_keys_async(&self) -> Result<tokio::sync::mpsc::Receiver<Result<String, v3::Error>>, v3::Error> {
+        let mut conn = self.connection.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+        tokio::spawn(async move {
+            let mut scan = match conn.scan().await.map_err(log_error_v3) {
+                Ok(s) => s,
+                Err(e) => {
+                    tx.send(Err(v3::Error::Other(format!("scan failed: {e}")))).await.unwrap();
+                    return;
+                }
+            };
+            loop {
+                match scan.next_item().await {
+                    None => break,
+                    Some(k) => tx.send(Ok(k)).await.unwrap(),
+                }
+            }
+        });
+
+        Ok(rx)
     }
 
     async fn get_many(&self, keys: Vec<String>) -> Result<Vec<(String, Option<Vec<u8>>)>, Error> {

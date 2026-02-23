@@ -17,10 +17,12 @@ use spin_locked_app::MetadataKey;
 
 /// Metadata key for key-value stores.
 pub const KEY_VALUE_STORES_KEY: MetadataKey<Vec<String>> = MetadataKey::new("key_value_stores");
-pub use host::{log_cas_error, log_error, Error, KeyValueDispatch, Store, StoreManager};
+pub use host::{log_cas_error, log_error, log_error_v3, Error, KeyValueDispatch, Store, StoreManager};
 pub use runtime_config::RuntimeConfig;
 use spin_core::async_trait;
 pub use util::DelegatingStoreManager;
+pub use spin_world::spin::key_value::key_value as v3;
+pub use host::to_v3_err;
 
 /// A factor that provides key-value storage.
 #[derive(Default)]

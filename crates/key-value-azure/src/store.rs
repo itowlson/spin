@@ -8,7 +8,7 @@ use azure_data_cosmos::{
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use spin_factor_key_value::{log_cas_error, log_error, Cas, Error, Store, StoreManager, SwapError};
+use spin_factor_key_value::{Cas, Error, Store, StoreManager, SwapError, log_cas_error, log_error, log_error_v3, v3};
 use std::sync::{Arc, Mutex};
 
 pub struct KeyValueAzureCosmos {
@@ -206,6 +206,34 @@ impl Store for AzureCosmosStore {
 
     async fn get_keys(&self) -> Result<Vec<String>, Error> {
         self.get_keys().await
+    }
+
+    async fn get_keys_async(&self) -> Result<tokio::sync::mpsc::Receiver<Result<String, v3::Error>>, v3::Error> {
+        let query = self
+            .client
+            .query_documents(Query::new(self.get_keys_query()))
+            .query_cross_partition(true);
+
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+        tokio::spawn(async move {
+            let mut stream = query.into_stream::<Key>();
+            while let Some(resp) = stream.next().await {
+                let resp = match resp.map_err(log_error_v3) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tx.send(Err(v3::Error::Other(e.to_string()))).await.unwrap();
+                        break;
+                    }
+                };
+
+                for (key, _) in resp.results {
+                    tx.send(Ok(key.id)).await.unwrap();
+                }
+            }
+        });
+
+        Ok(rx)
     }
 
     async fn get_many(&self, keys: Vec<String>) -> Result<Vec<(String, Option<Vec<u8>>)>, Error> {

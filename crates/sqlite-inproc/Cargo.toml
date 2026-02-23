@@ -9,6 +9,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 rusqlite = { workspace = true, features = ["bundled"] }
 spin-factor-sqlite = { path = "../factor-sqlite" }
+spin-wasi-async = { path = "../wasi-async" }
 spin-world = { path = "../world" }
 tokio = { workspace = true }
 

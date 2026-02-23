@@ -8583,6 +8583,7 @@ dependencies = [
  "spin-locked-app",
  "spin-resource-table",
  "spin-telemetry",
+ "spin-wasi-async",
  "spin-world",
  "tempfile",
  "thiserror 2.0.17",
@@ -8918,6 +8919,7 @@ dependencies = [
  "serde",
  "spin-core",
  "spin-factor-key-value",
+ "tokio",
 ]
 
 [[package]]
@@ -8933,6 +8935,7 @@ dependencies = [
  "reqwest 0.12.9",
  "serde",
  "spin-factor-key-value",
+ "tokio",
 ]
 
 [[package]]
@@ -8957,6 +8960,7 @@ dependencies = [
  "serde",
  "spin-core",
  "spin-factor-key-value",
+ "spin-wasi-async",
  "spin-world",
  "tokio",
 ]
@@ -9233,6 +9237,7 @@ dependencies = [
  "async-trait",
  "rusqlite",
  "spin-factor-sqlite",
+ "spin-wasi-async",
  "spin-world",
  "tokio",
 ]

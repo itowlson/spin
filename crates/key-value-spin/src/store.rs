@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::{named_params, Connection};
 use spin_core::async_trait;
-use spin_factor_key_value::{log_cas_error, log_error, Cas, Error, Store, StoreManager, SwapError};
+use spin_factor_key_value::{Cas, Error, Store, StoreManager, SwapError, log_cas_error, log_error, log_error_v3, v3};
 use std::rc::Rc;
 use std::{
     path::PathBuf,
@@ -159,6 +159,54 @@ impl Store for SqliteStore {
                 .map(|r| r.map_err(log_error))
                 .collect()
         })
+    }
+
+    async fn get_keys_async(&self) -> Result<tokio::sync::mpsc::Receiver<Result<String, v3::Error>>, v3::Error> {
+        let connection = self.connection.clone();
+        let name = self.name.clone();
+
+        let (rows_sync_tx, rows_sync_rx) = std::sync::mpsc::channel();
+
+        tokio::spawn(async move {
+            let conn = connection.lock().unwrap();
+            let mut stmt = match conn.prepare_cached("SELECT key FROM spin_key_value WHERE store=$1").map_err(log_error_v3) {
+                Ok(s) => s,
+                Err(_) => {
+                    rows_sync_tx.send(Err(v3::Error::Other("bad get_keys stmt".to_string()))).unwrap();
+                    return;
+                }
+            };
+            let mut rows = match stmt.query([&name]).map_err(log_error) {
+                Ok(r) => r,
+                Err(e) => {
+                    rows_sync_tx.send(Err(v3::Error::Other(format!("get_keys query failed: {e}")))).unwrap();
+                    return;
+                }
+            };
+
+            loop {
+                let row = match rows.next() {
+                    Err(e) => {
+                        rows_sync_tx.send(Err(v3::Error::Other(e.to_string()))).unwrap();
+                        break;
+                    }
+                    Ok(None) => break,
+                    Ok(Some(r)) => r,
+                };
+
+                match row.get(0) {
+                    Ok(key) => rows_sync_tx.send(Ok(key)).unwrap(),
+                    Err(e) => {
+                        let err = v3::Error::Other(e.to_string());
+                        rows_sync_tx.send(Err(err)).unwrap();
+                    }
+                }
+            }
+        });
+
+        let rx = spin_wasi_async::stream::asyncify(rows_sync_rx);
+
+        Ok(rx)
     }
 
     async fn get_many(&self, keys: Vec<String>) -> Result<Vec<(String, Option<Vec<u8>>)>, Error> {

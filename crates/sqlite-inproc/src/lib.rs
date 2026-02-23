@@ -113,7 +113,7 @@ impl Connection for InProcConnection {
         //     .collect();
 
         let (cols_tx, cols_rx) = tokio::sync::oneshot::channel();
-        let (rows_tx, rows_rx) = tokio::sync::mpsc::channel(100);
+        // let (rows_tx, rows_rx) = tokio::sync::mpsc::channel(100);
         let (rows_sync_tx, rows_sync_rx) = std::sync::mpsc::channel();
 
         tokio::spawn(async move {
@@ -164,16 +164,17 @@ impl Connection for InProcConnection {
             }
         });
         
-        tokio::spawn(async move {
-            loop {
-                match rows_sync_rx.recv_timeout(tokio::time::Duration::from_millis(1)) {
-                    Ok(r) => rows_tx.send(r).await.unwrap(),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => { tokio::task::yield_now().await; }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-            }
+        let rows_rx = spin_wasi_async::stream::asyncify(rows_sync_rx);
+        // tokio::spawn(async move {
+        //     loop {
+        //         match rows_sync_rx.recv_timeout(tokio::time::Duration::from_millis(1)) {
+        //             Ok(r) => rows_tx.send(r).await.unwrap(),
+        //             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => { tokio::task::yield_now().await; }
+        //             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        //         }
+        //     }
             
-        });
+        // });
 
         Ok((cols_rx, rows_rx))
     }

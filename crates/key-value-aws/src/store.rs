@@ -21,7 +21,7 @@ use aws_sdk_dynamodb::{
     Client,
 };
 use spin_core::async_trait;
-use spin_factor_key_value::{log_error, Cas, Error, Store, StoreManager, SwapError};
+use spin_factor_key_value::{log_error, Cas, Error, Store, StoreManager, SwapError, to_v3_err, v3};
 
 pub struct KeyValueAwsDynamo {
     /// AWS region
@@ -265,6 +265,39 @@ impl Store for AwsDynamoStore {
         }
 
         Ok(primary_keys)
+    }
+
+    async fn get_keys_async(&self) -> Result<tokio::sync::mpsc::Receiver<Result<String, v3::Error>>, v3::Error> {
+        let mut scan_paginator = self
+            .client
+            .scan()
+            .table_name(self.table.as_str())
+            .projection_expression(PK)
+            .into_paginator()
+            .send();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+        tokio::spawn(async move {
+            while let Some(output) = scan_paginator.next().await {
+                let scan_output = match output.map_err(log_error) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        tx.send(Err(to_v3_err(e))).await.unwrap();
+                        break;
+                    }
+                };
+                if let Some(items) = scan_output.items {
+                    for mut item in items {
+                        if let Some(AttributeValue::S(pk)) = item.remove(PK) {
+                            tx.send(Ok(pk)).await.unwrap();
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(rx)
     }
 
     async fn get_many(&self, keys: Vec<String>) -> Result<Vec<(String, Option<Vec<u8>>)>, Error> {

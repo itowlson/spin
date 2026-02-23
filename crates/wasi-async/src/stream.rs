@@ -43,3 +43,20 @@ impl<D, T: Send + Sync + 'static> wasmtime::component::StreamProducer<D> for Str
         }
     }
 }
+
+pub fn asyncify<T: Send + 'static>(sync_rx: std::sync::mpsc::Receiver<T>) -> tokio::sync::mpsc::Receiver<T> {
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+    tokio::spawn(async move {
+        loop {
+            match sync_rx.recv_timeout(tokio::time::Duration::from_millis(1)) {
+                Ok(r) => tx.send(r).await.unwrap(),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => { tokio::task::yield_now().await; }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        
+    });
+
+    rx
+}

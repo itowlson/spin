@@ -1,6 +1,6 @@
 use anyhow::bail;
 use spin_core::async_trait;
-use spin_factor_key_value::{Cas, KeyValueFactor, RuntimeConfig, Store, StoreManager};
+use spin_factor_key_value::{Cas, KeyValueFactor, RuntimeConfig, Store, StoreManager, v3};
 use spin_factors::RuntimeFactors;
 use spin_factors_test::{toml, TestEnvironment};
 use spin_world::v2::key_value::{Error, HostStore};
@@ -138,6 +138,9 @@ impl Store for MockStore {
         todo!()
     }
     async fn get_keys(&self) -> Result<Vec<String>, Error> {
+        todo!()
+    }
+    async fn get_keys_async(&self) -> Result<tokio::sync::mpsc::Receiver<Result<String, v3::Error>>, v3::Error> {
         todo!()
     }
 
