@@ -122,7 +122,7 @@ mod integration_tests {
                 let mut redis = redis::Client::open(format!("redis://localhost:{redis_port}"))
                     .context("could not connect to redis in test")?;
                 redis
-                    .publish("my-channel", "msg-from-test")
+                    .publish::<_, _, ()>("my-channel", "msg-from-test")
                     .context("could not publish test message to redis")?;
                 assert_eventually!(
                     {
@@ -180,7 +180,7 @@ mod integration_tests {
                 let mut redis = redis::Client::open(format!("redis://localhost:{redis_port}"))
                     .context("could not connect to redis in test")?;
                 redis
-                    .publish("my-channel", "msg-from-test")
+                    .publish::<_, _, ()>("my-channel", "msg-from-test")
                     .context("could not publish test message to redis")?;
                 assert_eventually!(
                     {
