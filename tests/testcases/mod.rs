@@ -233,7 +233,7 @@ pub fn redis_smoke_test_template(
     let mut conn = client.get_connection()?;
     let mut pubsub = conn.as_pubsub();
     pubsub.subscribe("redis-channel")?;
-    client.publish("redis-channel", "hello from redis")?;
+    client.publish::<_, _, ()>("redis-channel", "hello from redis")?;
 
     // Wait for the message to be received (as an approximation for when Spin receives the message)
     let _ = pubsub.get_message()?;
