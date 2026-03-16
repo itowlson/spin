@@ -4,7 +4,7 @@ use super::wasi_2023_10_18::convert;
 use anyhow::Result;
 use wasmtime::component::{Linker, Resource};
 use wasmtime_wasi_http::p2::bindings as latest;
-use wasmtime_wasi_http::{WasiHttpImpl, p2::WasiHttpView};
+use wasmtime_wasi_http::p2::WasiHttpCtxView;
 
 mod bindings {
     use super::latest;
@@ -54,11 +54,11 @@ use wasi::http::types::{
 use wasi::io::poll::Pollable;
 use wasi::io::streams::{Error as IoError, InputStream, OutputStream};
 
-use crate::wasi::{HasHttp, WasiHttpImplInner};
+use crate::wasi::HasHttp;
 
 pub(crate) fn add_to_linker<T>(
     linker: &mut Linker<T>,
-    closure: fn(&mut T) -> WasiHttpImpl<WasiHttpImplInner<'_>>,
+    closure: fn(&mut T) -> WasiHttpCtxView<'_>,
 ) -> Result<()>
 where
     T: Send + 'static,
@@ -68,10 +68,7 @@ where
     Ok(())
 }
 
-impl<T> wasi::http::types::Host for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::Host for WasiHttpCtxView<'_> {
     fn http_error_code(
         &mut self,
         error: Resource<IoError>,
@@ -80,10 +77,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostRequestOptions for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostRequestOptions for WasiHttpCtxView<'_> {
     fn new(&mut self) -> wasmtime::Result<Resource<RequestOptions>> {
         latest::http::types::HostRequestOptions::new(self)
     }
@@ -138,10 +132,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostFields for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
     fn new(&mut self) -> wasmtime::Result<Resource<Fields>> {
         latest::http::types::HostFields::new(self)
     }
@@ -198,10 +189,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostIncomingRequest for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostIncomingRequest for WasiHttpCtxView<'_> {
     fn method(&mut self, self_: Resource<IncomingRequest>) -> wasmtime::Result<Method> {
         latest::http::types::HostIncomingRequest::method(self, self_).map(|e| e.into())
     }
@@ -237,10 +225,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostIncomingResponse for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostIncomingResponse for WasiHttpCtxView<'_> {
     fn status(&mut self, self_: Resource<IncomingResponse>) -> wasmtime::Result<StatusCode> {
         latest::http::types::HostIncomingResponse::status(self, self_)
     }
@@ -264,10 +249,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostIncomingBody for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostIncomingBody for WasiHttpCtxView<'_> {
     fn stream(
         &mut self,
         self_: Resource<IncomingBody>,
@@ -287,10 +269,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostOutgoingRequest for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostOutgoingRequest for WasiHttpCtxView<'_> {
     fn new(&mut self, headers: Resource<Headers>) -> wasmtime::Result<Resource<OutgoingRequest>> {
         latest::http::types::HostOutgoingRequest::new(self, headers)
     }
@@ -362,10 +341,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostOutgoingResponse for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostOutgoingResponse for WasiHttpCtxView<'_> {
     fn new(&mut self, headers: Resource<Headers>) -> wasmtime::Result<Resource<OutgoingResponse>> {
         let headers = latest::http::types::HostFields::clone(self, headers)?;
         latest::http::types::HostOutgoingResponse::new(self, headers)
@@ -402,10 +378,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostOutgoingBody for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostOutgoingBody for WasiHttpCtxView<'_> {
     fn write(
         &mut self,
         self_: Resource<OutgoingBody>,
@@ -429,10 +402,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostResponseOutparam for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostResponseOutparam for WasiHttpCtxView<'_> {
     fn set(
         &mut self,
         param: Resource<ResponseOutparam>,
@@ -446,10 +416,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostFutureTrailers for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostFutureTrailers for WasiHttpCtxView<'_> {
     fn subscribe(
         &mut self,
         self_: Resource<FutureTrailers>,
@@ -474,10 +441,7 @@ where
     }
 }
 
-impl<T> wasi::http::types::HostFutureIncomingResponse for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::types::HostFutureIncomingResponse for WasiHttpCtxView<'_> {
     fn get(
         &mut self,
         self_: Resource<FutureIncomingResponse>,
@@ -503,10 +467,7 @@ where
     }
 }
 
-impl<T> wasi::http::outgoing_handler::Host for WasiHttpImpl<T>
-where
-    T: WasiHttpView + Send,
-{
+impl wasi::http::outgoing_handler::Host for WasiHttpCtxView<'_> {
     fn handle(
         &mut self,
         request: Resource<OutgoingRequest>,

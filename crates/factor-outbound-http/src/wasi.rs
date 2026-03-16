@@ -38,11 +38,13 @@ use tracing::{field::Empty, instrument, Instrument};
 use wasmtime::component::HasData;
 use wasmtime_wasi::TrappableError;
 use wasmtime_wasi_http::{
-    p2::bindings::http::types::{self as p2_types, ErrorCode},
-    p2::body::HyperOutgoingBody,
+    p2::{
+        bindings::http::types::{self as p2_types, ErrorCode},
+        body::HyperOutgoingBody,
+        types::{HostFutureIncomingResponse, IncomingResponse, OutgoingRequestConfig},
+        HttpError, WasiHttpCtxView, WasiHttpHooks,
+    },
     p3::{self, bindings::http::types as p3_types},
-    p2::types::{HostFutureIncomingResponse, IncomingResponse, OutgoingRequestConfig},
-    p2::HttpError, WasiHttpCtx, WasiHttpImpl, WasiHttpView,
 };
 
 use crate::{
@@ -83,10 +85,10 @@ impl<T: Body + Unpin> Body for MutexBody<T> {
 pub(crate) struct HasHttp;
 
 impl HasData for HasHttp {
-    type Data<'a> = WasiHttpImpl<WasiHttpImplInner<'a>>;
+    type Data<'a> = WasiHttpCtxView<'a>;
 }
 
-impl p3::WasiHttpCtx for InstanceState {
+impl p3::WasiHttpHooks for InstanceState {
     #[instrument(
         name = "spin_outbound_http.send_request",
         skip_all,
@@ -240,15 +242,16 @@ where
 {
     let linker = ctx.linker();
 
-    fn get_http<C>(store: &mut C::StoreData) -> WasiHttpImpl<WasiHttpImplInner<'_>>
+    fn get_http<C>(store: &mut C::StoreData) -> WasiHttpCtxView<'_>
     where
         C: spin_factors::InitContext<OutboundHttpFactor>,
     {
         let (state, table) = C::get_data_with_table(store);
-        WasiHttpImpl(WasiHttpImplInner { state, table })
+        let ctx = &mut state.wasi_http_ctx;
+        WasiHttpCtxView { ctx, table }
     }
 
-    let get_http = get_http::<C> as fn(&mut C::StoreData) -> WasiHttpImpl<WasiHttpImplInner<'_>>;
+    let get_http = get_http::<C> as fn(&mut C::StoreData) -> WasiHttpCtxView<'_>;
     wasmtime_wasi_http::p2::bindings::http::outgoing_handler::add_to_linker::<_, HasHttp>(
         linker, get_http,
     )?;
@@ -263,7 +266,8 @@ where
         C: spin_factors::InitContext<OutboundHttpFactor>,
     {
         let (state, table) = C::get_data_with_table(store);
-        p3::WasiHttpCtxView { ctx: state, table }
+        let ctx = &mut state.wasi_http_ctx;
+        p3::WasiHttpCtxView { ctx, table }
     }
 
     let get_http_p3 = get_http_p3::<C> as fn(&mut C::StoreData) -> p3::WasiHttpCtxView<'_>;
@@ -279,16 +283,18 @@ where
 impl OutboundHttpFactor {
     pub fn get_wasi_http_impl(
         runtime_instance_state: &mut impl RuntimeFactorsInstanceState,
-    ) -> Option<WasiHttpImpl<impl WasiHttpView + '_>> {
+    ) -> Option<WasiHttpCtxView<'_>> {
         let (state, table) = runtime_instance_state.get_with_table::<OutboundHttpFactor>()?;
-        Some(WasiHttpImpl(WasiHttpImplInner { state, table }))
+        let ctx = &mut state.wasi_http_ctx;
+        Some(WasiHttpCtxView { ctx, table })
     }
 
     pub fn get_wasi_p3_http_impl(
         runtime_instance_state: &mut impl RuntimeFactorsInstanceState,
     ) -> Option<p3::WasiHttpCtxView<'_>> {
         let (state, table) = runtime_instance_state.get_with_table::<OutboundHttpFactor>()?;
-        Some(p3::WasiHttpCtxView { ctx: state, table })
+        let ctx = &mut state.wasi_http_ctx;
+        Some(p3::WasiHttpCtxView { ctx, table })
     }
 }
 
@@ -299,15 +305,7 @@ pub(crate) struct WasiHttpImplInner<'a> {
 
 type OutgoingRequest = http::Request<HyperOutgoingBody>;
 
-impl WasiHttpView for WasiHttpImplInner<'_> {
-    fn ctx(&mut self) -> &mut WasiHttpCtx {
-        &mut self.state.wasi_http_ctx
-    }
-
-    fn table(&mut self) -> &mut ResourceTable {
-        self.table
-    }
-
+impl WasiHttpHooks for WasiHttpImplInner<'_> {
     #[instrument(
         name = "spin_outbound_http.send_request",
         skip_all,
@@ -869,10 +867,12 @@ fn hyper_legacy_request_error(err: hyper_util::client::legacy::Error) -> ErrorCo
 }
 
 fn dns_error(rcode: String, info_code: u16) -> ErrorCode {
-    ErrorCode::DnsError(wasmtime_wasi_http::p2::bindings::http::types::DnsErrorPayload {
-        rcode: Some(rcode),
-        info_code: Some(info_code),
-    })
+    ErrorCode::DnsError(
+        wasmtime_wasi_http::p2::bindings::http::types::DnsErrorPayload {
+            rcode: Some(rcode),
+            info_code: Some(info_code),
+        },
+    )
 }
 
 // TODO: Remove this (and uses of it) once
