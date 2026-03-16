@@ -1,7 +1,7 @@
 use anyhow::Result;
 use wasmtime::component::{Linker, Resource};
-use wasmtime_wasi_http::bindings as latest;
-use wasmtime_wasi_http::{WasiHttpImpl, WasiHttpView};
+use wasmtime_wasi_http::p2::bindings as latest;
+use wasmtime_wasi_http::{WasiHttpImpl, p2::WasiHttpView};
 
 mod bindings {
     use super::latest;
@@ -41,8 +41,9 @@ pub mod exports {
 }
 
 pub use bindings::{Proxy, ProxyIndices};
-use wasi::http::types::{
-    Error as HttpError, Fields, FutureIncomingResponse, FutureTrailers, Headers, IncomingBody,
+use wasmtime_wasi_http::p2::HttpError;
+use wasmtime_wasi_http::p2::bindings::http::types::{
+    Fields, FutureIncomingResponse, FutureTrailers, Headers, IncomingBody,
     IncomingRequest, IncomingResponse, Method, OutgoingBody, OutgoingRequest, OutgoingResponse,
     RequestOptions, ResponseOutparam, Scheme, StatusCode, Trailers,
 };

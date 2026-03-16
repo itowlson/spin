@@ -26,7 +26,7 @@ use spin_factors::{
 use tokio::sync::Semaphore;
 use wasmtime_wasi_http::WasiHttpCtx;
 
-pub use wasmtime_wasi_http::{
+pub use wasmtime_wasi_http::p2::{
     bindings::http::types::ErrorCode,
     body::HyperOutgoingBody,
     types::{HostFutureIncomingResponse, OutgoingRequestConfig},
@@ -207,8 +207,8 @@ mod concurrent_outbound_connections {
     }
 }
 
-pub type Request = http::Request<wasmtime_wasi_http::body::HyperOutgoingBody>;
-pub type Response = http::Response<wasmtime_wasi_http::body::HyperIncomingBody>;
+pub type Request = http::Request<wasmtime_wasi_http::p2::body::HyperOutgoingBody>;
+pub type Response = http::Response<wasmtime_wasi_http::p2::body::HyperIncomingBody>;
 
 /// SelfRequestOrigin indicates the base URI to use for "self" requests.
 #[derive(Clone, Debug)]
