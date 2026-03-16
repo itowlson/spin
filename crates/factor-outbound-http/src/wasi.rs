@@ -38,11 +38,11 @@ use tracing::{field::Empty, instrument, Instrument};
 use wasmtime::component::HasData;
 use wasmtime_wasi::TrappableError;
 use wasmtime_wasi_http::{
-    bindings::http::types::{self as p2_types, ErrorCode},
-    body::HyperOutgoingBody,
+    p2::bindings::http::types::{self as p2_types, ErrorCode},
+    p2::body::HyperOutgoingBody,
     p3::{self, bindings::http::types as p3_types},
-    types::{HostFutureIncomingResponse, IncomingResponse, OutgoingRequestConfig},
-    HttpError, WasiHttpCtx, WasiHttpImpl, WasiHttpView,
+    p2::types::{HostFutureIncomingResponse, IncomingResponse, OutgoingRequestConfig},
+    p2::HttpError, WasiHttpCtx, WasiHttpImpl, WasiHttpView,
 };
 
 use crate::{
@@ -249,10 +249,10 @@ where
     }
 
     let get_http = get_http::<C> as fn(&mut C::StoreData) -> WasiHttpImpl<WasiHttpImplInner<'_>>;
-    wasmtime_wasi_http::bindings::http::outgoing_handler::add_to_linker::<_, HasHttp>(
+    wasmtime_wasi_http::p2::bindings::http::outgoing_handler::add_to_linker::<_, HasHttp>(
         linker, get_http,
     )?;
-    wasmtime_wasi_http::bindings::http::types::add_to_linker::<_, HasHttp>(
+    wasmtime_wasi_http::p2::bindings::http::types::add_to_linker::<_, HasHttp>(
         linker,
         &Default::default(),
         get_http,
@@ -325,7 +325,7 @@ impl WasiHttpView for WasiHttpImplInner<'_> {
         &mut self,
         request: OutgoingRequest,
         config: OutgoingRequestConfig,
-    ) -> Result<wasmtime_wasi_http::types::HostFutureIncomingResponse, HttpError> {
+    ) -> Result<wasmtime_wasi_http::p2::types::HostFutureIncomingResponse, HttpError> {
         self.state.otel.reparent_tracing_span();
 
         let request_sender = RequestSender {
@@ -869,7 +869,7 @@ fn hyper_legacy_request_error(err: hyper_util::client::legacy::Error) -> ErrorCo
 }
 
 fn dns_error(rcode: String, info_code: u16) -> ErrorCode {
-    ErrorCode::DnsError(wasmtime_wasi_http::bindings::http::types::DnsErrorPayload {
+    ErrorCode::DnsError(wasmtime_wasi_http::p2::bindings::http::types::DnsErrorPayload {
         rcode: Some(rcode),
         info_code: Some(info_code),
     })
