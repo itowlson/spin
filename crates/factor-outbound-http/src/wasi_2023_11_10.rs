@@ -141,7 +141,10 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         &mut self,
         entries: Vec<(String, Vec<u8>)>,
     ) -> wasmtime::Result<Result<Resource<Fields>, HeaderError>> {
-        latest::http::types::HostFields::from_list(self, entries).map(|r| r.map_err(|e| e.into()))
+        match latest::http::types::HostFields::from_list(self, entries) {
+            Ok(r) => Ok(Ok(r)),
+            Err(e) => Ok(Err(e.try_into()?)),
+        }
     }
 
     fn get(&mut self, self_: Resource<Fields>, name: String) -> wasmtime::Result<Vec<Vec<u8>>> {
@@ -154,8 +157,10 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         name: String,
         value: Vec<Vec<u8>>,
     ) -> wasmtime::Result<Result<(), HeaderError>> {
-        latest::http::types::HostFields::set(self, self_, name, value)
-            .map(|r| r.map_err(|e| e.into()))
+        match latest::http::types::HostFields::set(self, self_, name, value) {
+            Ok(r) => Ok(Ok(r)),
+            Err(e) => Ok(Err(e.try_into()?)),
+        }
     }
 
     fn delete(
@@ -163,7 +168,10 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         self_: Resource<Fields>,
         name: String,
     ) -> wasmtime::Result<Result<(), HeaderError>> {
-        latest::http::types::HostFields::delete(self, self_, name).map(|r| r.map_err(|e| e.into()))
+        match latest::http::types::HostFields::delete(self, self_, name) {
+            Ok(r) => Ok(Ok(r)),
+            Err(e) => Ok(Err(e.try_into()?)),
+        }
     }
 
     fn append(
@@ -172,9 +180,11 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         name: String,
         value: Vec<u8>,
     ) -> wasmtime::Result<Result<(), HeaderError>> {
-        latest::http::types::HostFields::append(self, self_, name, value)
-            .map(|r| r.map_err(|e| e.into()))
-    }
+        match latest::http::types::HostFields::append(self, self_, name, value) {
+            Ok(r) => Ok(Ok(r)),
+            Err(e) => Ok(Err(e.try_into()?)),
+        }
+   }
 
     fn entries(&mut self, self_: Resource<Fields>) -> wasmtime::Result<Vec<(String, Vec<u8>)>> {
         latest::http::types::HostFields::entries(self, self_)
@@ -723,5 +733,17 @@ impl From<HttpErrorCode> for latest::http::types::ErrorCode {
             HttpErrorCode::ConfigurationError => latest::http::types::ErrorCode::ConfigurationError,
             HttpErrorCode::InternalError(e) => latest::http::types::ErrorCode::InternalError(e),
         }
+    }
+}
+
+impl TryFrom<wasmtime_wasi_http::p2::HeaderError> for wasi::http::types::HeaderError {
+    type Error = wasmtime::Error;
+    fn try_from(value: wasmtime_wasi_http::p2::HeaderError) -> Result<Self, Self::Error> {
+        let value = value.downcast()?;
+        Ok(match value {
+            latest::http::types::HeaderError::InvalidSyntax => Self::InvalidSyntax,
+            latest::http::types::HeaderError::Forbidden => Self::Forbidden,
+            latest::http::types::HeaderError::Immutable => Self::Immutable,
+        })
     }
 }
