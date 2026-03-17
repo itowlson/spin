@@ -41,8 +41,8 @@ use tokio::{
 use tracing::Instrument;
 use wasmtime::ToWasmtimeResult;
 use wasmtime_wasi::p2::bindings::CommandIndices;
-use wasmtime_wasi_http::body::HyperOutgoingBody;
 use wasmtime_wasi_http::handler::{HandlerState, StoreBundle};
+use wasmtime_wasi_http::p2::body::HyperOutgoingBody;
 
 use crate::{
     headers::strip_forbidden_headers,
@@ -553,7 +553,7 @@ impl<F: RuntimeFactors> HttpServer<F> {
             let result = self
                 .handle(
                     request.map(|body: Incoming| {
-                        body.map_err(wasmtime_wasi_http::hyper_response_error)
+                        body.map_err(wasmtime_wasi_http::p2::hyper_response_error)
                             .boxed_unsync()
                     }),
                     server_scheme,

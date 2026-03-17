@@ -3,8 +3,8 @@ use spin_factor_outbound_http::wasi_2023_10_18::ProxyIndices as ProxyIndices2023
 use spin_factor_outbound_http::wasi_2023_11_10::ProxyIndices as ProxyIndices2023_11_10;
 use wasmtime::component::InstancePre;
 use wasmtime_wasi::p2::bindings::CommandIndices;
-use wasmtime_wasi_http::bindings::ProxyIndices;
 use wasmtime_wasi_http::handler::{HandlerState, ProxyHandler, ProxyPre};
+use wasmtime_wasi_http::p2::bindings::ProxyIndices;
 use wasmtime_wasi_http::p3::bindings::ServicePre as P3ProxyPre;
 
 use crate::config::HttpExecutorType;
