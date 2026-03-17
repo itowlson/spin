@@ -184,7 +184,7 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
             Ok(r) => Ok(Ok(r)),
             Err(e) => Ok(Err(e.try_into()?)),
         }
-   }
+    }
 
     fn entries(&mut self, self_: Resource<Fields>) -> wasmtime::Result<Vec<(String, Vec<u8>)>> {
         latest::http::types::HostFields::entries(self, self_)

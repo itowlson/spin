@@ -74,8 +74,6 @@ impl<S: HandlerState> HttpExecutor for WasiHttpExecutor<'_, S> {
         let (response_tx, response_rx) = oneshot::channel();
         let response = wasi_http.new_response_outparam(response_tx)?;
 
-        drop(wasi_http);
-
         enum Handler {
             Latest(Proxy),
             Handler2023_11_10(Proxy2023_11_10),

@@ -87,7 +87,8 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         name: String,
         value: Vec<Vec<u8>>,
     ) -> wasmtime::Result<()> {
-        latest::http::types::HostFields::set(self, self_, name, value).map_err(as_wasmtime_error)?;
+        latest::http::types::HostFields::set(self, self_, name, value)
+            .map_err(as_wasmtime_error)?;
         Ok(())
     }
 
@@ -106,7 +107,8 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         name: String,
         value: Vec<u8>,
     ) -> wasmtime::Result<()> {
-        latest::http::types::HostFields::append(self, self_, name, value).map_err(as_wasmtime_error)?;
+        latest::http::types::HostFields::append(self, self_, name, value)
+            .map_err(as_wasmtime_error)?;
         Ok(())
     }
 
