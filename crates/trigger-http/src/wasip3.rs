@@ -10,8 +10,8 @@ use std::net::SocketAddr;
 use tracing::{instrument, Instrument, Level};
 use wasmtime::component::Accessor;
 use wasmtime_wasi_http::{
-    body::HyperIncomingBody as Body,
     handler::{Proxy, ProxyHandler},
+    p2::body::HyperIncomingBody as Body,
     p3::{bindings::http::types, WasiHttpCtxView},
 };
 
