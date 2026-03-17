@@ -70,10 +70,7 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         &mut self,
         entries: Vec<(String, Vec<u8>)>,
     ) -> wasmtime::Result<wasmtime::component::Resource<Fields>> {
-        match latest::http::types::HostFields::from_list(self, entries) {
-            Ok(fields) => Ok(fields),
-            Err(e) => Err(e.into()),
-        }
+        latest::http::types::HostFields::from_list(self, entries).map_err(as_wasmtime_error)
     }
 
     fn get(
@@ -90,7 +87,7 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         name: String,
         value: Vec<Vec<u8>>,
     ) -> wasmtime::Result<()> {
-        latest::http::types::HostFields::set(self, self_, name, value)?;
+        latest::http::types::HostFields::set(self, self_, name, value).map_err(as_wasmtime_error)?;
         Ok(())
     }
 
@@ -99,7 +96,7 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         self_: wasmtime::component::Resource<Fields>,
         name: String,
     ) -> wasmtime::Result<()> {
-        latest::http::types::HostFields::delete(self, self_, name)?;
+        latest::http::types::HostFields::delete(self, self_, name).map_err(as_wasmtime_error)?;
         Ok(())
     }
 
@@ -109,7 +106,7 @@ impl wasi::http::types::HostFields for WasiHttpCtxView<'_> {
         name: String,
         value: Vec<u8>,
     ) -> wasmtime::Result<()> {
-        latest::http::types::HostFields::append(self, self_, name, value)?;
+        latest::http::types::HostFields::append(self, self_, name, value).map_err(as_wasmtime_error)?;
         Ok(())
     }
 
@@ -598,5 +595,12 @@ impl From<latest::http::types::ErrorCode> for HttpError {
         // TODO: should probably categorize this better given the typed info
         // we have in `e`.
         HttpError::UnexpectedError(e.to_string())
+    }
+}
+
+fn as_wasmtime_error(e: wasmtime_wasi_http::p2::HeaderError) -> wasmtime::Error {
+    match e.downcast() {
+        Ok(e) => wasmtime::Error::new(e),
+        Err(e) => e,
     }
 }
