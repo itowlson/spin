@@ -25,7 +25,7 @@ use spin_factor_outbound_networking::{
     config::{allowed_hosts::OutboundAllowedHosts, blocked_networks::BlockedNetworks},
     ComponentTlsClientConfigs, TlsClientConfig,
 };
-use spin_factors::{wasmtime::component::ResourceTable, RuntimeFactorsInstanceState};
+use spin_factors::RuntimeFactorsInstanceState;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     net::TcpStream,
@@ -39,17 +39,18 @@ use wasmtime::component::HasData;
 use wasmtime_wasi::TrappableError;
 use wasmtime_wasi_http::{
     p2::{
+        self,
         bindings::http::types::{self as p2_types, ErrorCode},
         body::HyperOutgoingBody,
         types::{HostFutureIncomingResponse, IncomingResponse, OutgoingRequestConfig},
-        HttpError, WasiHttpCtxView, WasiHttpHooks,
+        HttpError, WasiHttpCtxView,
     },
     p3::{self, bindings::http::types as p3_types},
 };
 
 use crate::{
     intercept::{InterceptOutcome, OutboundHttpInterceptor},
-    wasi_2023_10_18, wasi_2023_11_10, InstanceState, OutboundHttpFactor, SelfRequestOrigin,
+    wasi_2023_10_18, wasi_2023_11_10, InstanceHttpHooks, OutboundHttpFactor, SelfRequestOrigin,
 };
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
@@ -88,7 +89,7 @@ impl HasData for HasHttp {
     type Data<'a> = WasiHttpCtxView<'a>;
 }
 
-impl p3::WasiHttpHooks for InstanceState {
+impl p3::WasiHttpHooks for InstanceHttpHooks {
     #[instrument(
         name = "spin_outbound_http.send_request",
         skip_all,
@@ -248,7 +249,11 @@ where
     {
         let (state, table) = C::get_data_with_table(store);
         let ctx = &mut state.wasi_http_ctx;
-        WasiHttpCtxView { ctx, table }
+        WasiHttpCtxView {
+            ctx,
+            table,
+            hooks: &mut state.hooks,
+        }
     }
 
     let get_http = get_http::<C> as fn(&mut C::StoreData) -> WasiHttpCtxView<'_>;
@@ -267,7 +272,11 @@ where
     {
         let (state, table) = C::get_data_with_table(store);
         let ctx = &mut state.wasi_http_ctx;
-        p3::WasiHttpCtxView { ctx, table }
+        p3::WasiHttpCtxView {
+            ctx,
+            table,
+            hooks: &mut state.hooks,
+        }
     }
 
     let get_http_p3 = get_http_p3::<C> as fn(&mut C::StoreData) -> p3::WasiHttpCtxView<'_>;
@@ -286,7 +295,11 @@ impl OutboundHttpFactor {
     ) -> Option<WasiHttpCtxView<'_>> {
         let (state, table) = runtime_instance_state.get_with_table::<OutboundHttpFactor>()?;
         let ctx = &mut state.wasi_http_ctx;
-        Some(WasiHttpCtxView { ctx, table })
+        Some(WasiHttpCtxView {
+            ctx,
+            table,
+            hooks: &mut state.hooks,
+        })
     }
 
     pub fn get_wasi_p3_http_impl(
@@ -294,47 +307,32 @@ impl OutboundHttpFactor {
     ) -> Option<p3::WasiHttpCtxView<'_>> {
         let (state, table) = runtime_instance_state.get_with_table::<OutboundHttpFactor>()?;
         let ctx = &mut state.wasi_http_ctx;
-        Some(p3::WasiHttpCtxView { ctx, table })
+        Some(p3::WasiHttpCtxView {
+            ctx,
+            table,
+            hooks: &mut state.hooks,
+        })
     }
-}
-
-pub(crate) struct WasiHttpImplInner<'a> {
-    state: &'a mut InstanceState,
-    table: &'a mut ResourceTable,
 }
 
 type OutgoingRequest = http::Request<HyperOutgoingBody>;
 
-impl WasiHttpHooks for WasiHttpImplInner<'_> {
-    #[instrument(
-        name = "spin_outbound_http.send_request",
-        skip_all,
-        fields(
-            otel.kind = "client",
-            url.full = Empty,
-            http.request.method = %request.method(),
-            otel.name = %request.method(),
-            http.response.status_code = Empty,
-            server.address = Empty,
-            server.port = Empty,
-        )
-    )]
+impl p2::WasiHttpHooks for InstanceHttpHooks {
     fn send_request(
         &mut self,
         request: OutgoingRequest,
         config: OutgoingRequestConfig,
     ) -> Result<wasmtime_wasi_http::p2::types::HostFutureIncomingResponse, HttpError> {
-        self.state.otel.reparent_tracing_span();
+        self.otel.reparent_tracing_span();
 
         let request_sender = RequestSender {
-            allowed_hosts: self.state.allowed_hosts.clone(),
-            component_tls_configs: self.state.component_tls_configs.clone(),
-            request_interceptor: self.state.request_interceptor.clone(),
-            self_request_origin: self.state.self_request_origin.clone(),
-            blocked_networks: self.state.blocked_networks.clone(),
-            http_clients: self.state.wasi_http_clients.clone(),
+            allowed_hosts: self.allowed_hosts.clone(),
+            component_tls_configs: self.component_tls_configs.clone(),
+            request_interceptor: self.request_interceptor.clone(),
+            self_request_origin: self.self_request_origin.clone(),
+            blocked_networks: self.blocked_networks.clone(),
+            http_clients: self.wasi_http_clients.clone(),
             concurrent_outbound_connections_semaphore: self
-                .state
                 .concurrent_outbound_connections_semaphore
                 .clone(),
         };
