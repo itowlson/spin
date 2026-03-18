@@ -318,6 +318,19 @@ impl OutboundHttpFactor {
 type OutgoingRequest = http::Request<HyperOutgoingBody>;
 
 impl p2::WasiHttpHooks for InstanceHttpHooks {
+    #[instrument(
+        name = "spin_outbound_http.send_request",
+        skip_all,
+        fields(
+            otel.kind = "client",
+            url.full = Empty,
+            http.request.method = %request.method(),
+            otel.name = %request.method(),
+            http.response.status_code = Empty,
+            server.address = Empty,
+            server.port = Empty,
+        )
+    )]
     fn send_request(
         &mut self,
         request: OutgoingRequest,
