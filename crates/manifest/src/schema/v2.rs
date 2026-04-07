@@ -220,7 +220,7 @@ impl TryFrom<toml::Value> for ComponentSpec {
 /// Example: `"my:import" = { url = "https://example.com/component.wasm", sha256 = "sha256:..." }`
 ///
 /// Learn more: https://spinframework.dev/v3/writing-apps#using-component-dependencies
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum ComponentDependency {
     /// `... = ">= 0.1.0"`

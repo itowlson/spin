@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use anyhow::Context;
 use spin_loader::WasmLoader;
@@ -53,6 +53,8 @@ pub async fn extract_wits(
     let aggregating_world_id =
         aggregating_resolve.select_world(&[aggregating_pkg_id], Some("root"))?;
 
+    let mut importised_map = HashMap::new();
+
     // TODO: figure out what to do if we import two itfs from same dep
     for (index, (dependency_name, dependency)) in source.enumerate() {
         let import_kind = match dependency_name {
@@ -65,33 +67,45 @@ pub async fn extract_wits(
             }
         };
 
-        let (wasm_path, export) = loader
-            .load_component_dependency(dependency_name, dependency)
-            .await
-            .with_context(|| format!("failed to load dependency {dependency_name}"))?;
-        let wasm_bytes = tokio::fs::read(&wasm_path).await?;
+        let (importised, remap) = match importised_map.get(dependency) {
+            None => {
+                let (wasm_path, export) = loader
+                    .load_component_dependency(dependency_name, dependency)
+                    .await
+                    .with_context(|| format!("failed to load dependency {dependency_name}"))?;
+                let wasm_bytes = tokio::fs::read(&wasm_path).await?;
 
-        let decoded = read_wasm(&wasm_bytes)?;
-        let decoded = match export {
-            None => decoded,
-            Some(export) => {
-                munge_aliased_export(decoded, &export, dependency_name).with_context(|| {
-                    format!("failed to map named export {export} to dependency {dependency_name}")
-                })?
+                let decoded = read_wasm(&wasm_bytes)?;
+                let decoded = match export {
+                    None => decoded,
+                    Some(export) => {
+                        munge_aliased_export(decoded, &export, dependency_name).with_context(|| {
+                            format!("failed to map named export {export} to dependency {dependency_name}")
+                        })?
+                    }
+                };
+                let impo_world = format!("impo-world{index}");
+                let importised = importize(decoded, Some(&impo_world))
+                    .with_context(|| format!("failed to map importize dependency {dependency_name}"))?;
+                let remap = aggregating_resolve.merge(importised.resolve().clone())?;
+
+                // if impo_world == "impo-world0" {
+                // for (_, w) in &importised.resolve().worlds {
+                //     for (_, wi) in &w.imports {
+                //         eprintln!("IMPO-WORLD0! now importing! {wi:?}");
+                //     }
+                // }}
+
+                importised_map.insert(dependency, (importised, remap));
+                importised_map.get(dependency).unwrap()
             }
+            Some(impo) => impo,
         };
-        let impo_world = format!("impo-world{index}");
-        let importised = importize(decoded, Some(&impo_world))
-            .with_context(|| format!("failed to map importize dependency {dependency_name}"))?;
 
         let imports = match &import_kind {
             ImportKind::WholePackage => all_imports(&importised),
             ImportKind::Interface(itf) => one_import(&importised, itf.as_ref())?,
             ImportKind::Function(_) => Default::default(),
-        };
-        let func_import = match import_kind {
-            ImportKind::Function(f) => one_func_import(&importised, f.as_ref())?,
-            _ => Default::default(),
         };
 
         // Capture WITs for all packages used in the importised thing.
@@ -118,12 +132,15 @@ pub async fn extract_wits(
             let output = wit_component::OutputToString::default();
             let mut printer = wit_component::WitPrinter::new(output);
             printer.print_package(importised.resolve(), *p, false)?;
-            package_wits.insert(pkg_name, printer.output.to_string());
+            package_wits.insert(pkg_name.clone(), printer.output.to_string());
         }
 
         // Now add the imports to the aggregating component import world
 
-        let remap = aggregating_resolve.merge(importised.resolve().clone())?;
+        // eprintln!("{dependency_name}: merging resolve into aggo...");
+        // let remap = aggregating_resolve.merge(importised.resolve().clone())?;
+        // eprintln!("{dependency_name}: merged resolve into aggo...");
+
         for iid in imports {
             let mapped_iid = remap.map_interface(iid, Span::default())?;
             let wk = wit_parser::WorldKey::Interface(mapped_iid);
@@ -156,14 +173,46 @@ pub async fn extract_wits(
                 });
             }
         }
+
+        let func_import = match import_kind {
+            ImportKind::Function(f) => one_func_import(&aggregating_resolve, f.as_ref())?,
+            _ => Default::default(),
+        };
+
         if let Some(func) = func_import {
-            let wk = wit_parser::WorldKey::Name(func.name.clone());
-            let world_item = wit_parser::WorldItem::Function(func);
+            let fname = func.name.clone();
+            eprintln!("--- plopping in {} ---", fname);
+
             let aggregating_world = aggregating_resolve
                 .worlds
                 .get_mut(aggregating_world_id)
                 .context("aggregated dependency world doesn't exist")?; // shouldn't happen
+
+            eprintln!("aggworld imports BEFORE:");
+            for (_, wi) in &aggregating_world.imports {
+                eprintln!("  - {wi:?}");
+            }
+
+            for ty in func.parameter_and_result_types() {
+                if let wit_parser::Type::Id(tyid) = ty {
+                    let ty_def = aggregating_resolve.types.get(tyid).context("type should exist")?;
+                    let type_name = ty_def.name.clone().context("type should have a name")?;
+                    let wk = wit_parser::WorldKey::Name(type_name);
+                    let world_item = wit_parser::WorldItem::Type { id: tyid, span: Span::default() };
+                    if !aggregating_world.imports.contains_key(&wk) {
+                        aggregating_world.imports.insert(wk, world_item);
+                    }
+                }
+            }
+
+            let wk = wit_parser::WorldKey::Name(func.name.clone());
+            let world_item = wit_parser::WorldItem::Function(func);
             aggregating_world.imports.insert(wk, world_item);
+            eprintln!("aggworld imports AFTER:");
+            for (_, wi) in &aggregating_world.imports {
+                eprintln!("  - {wi:?}");
+            }
+            eprintln!("--- END plopping in {} ---", fname);
         }
     }
 
@@ -362,9 +411,8 @@ fn one_import(wasm: &DecodedWasm, name: &str) -> anyhow::Result<Vec<wit_parser::
     Ok(vec![id])
 }
 
-fn one_func_import(wasm: &DecodedWasm, name: &str) -> anyhow::Result<Option<wit_parser::Function>> {
-    let funcs = wasm
-        .resolve()
+fn one_func_import(resolve: &wit_parser::Resolve, name: &str) -> anyhow::Result<Option<wit_parser::Function>> {
+    let funcs = resolve
         .worlds
         .iter()
         .flat_map(|w| {
