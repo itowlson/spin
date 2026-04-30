@@ -64,6 +64,40 @@ pub async fn load_environments<'a>(
     Ok(envs)
 }
 
+/// NOTE: this bypasses the lockfile (at least for now), because it is called in
+/// contexts where the app dir does not yet exist. Don't use it if locky goodness
+/// if what you're all about.
+pub async fn load_environment_def<'a>(env_ref: &'a TargetEnvironmentRef,cache: &spin_loader::cache::Cache) -> anyhow::Result<(String, EnvironmentDefinition)> {
+    let lockfile = TargetEnvironmentLockfile::default();
+    let lockfile = Arc::new(tokio::sync::RwLock::new(lockfile));
+
+    let (toml_text, name) = match env_ref {
+        TargetEnvironmentRef::DefaultRegistry(id) => {
+            (load_env_def_toml_from_registry(DEFAULT_ENV_DEF_REGISTRY_PREFIX, id, cache, &lockfile)
+                .await?, id.clone())
+        }
+        TargetEnvironmentRef::Registry { registry, id } => {
+            (load_env_def_toml_from_registry(registry, id, cache, &lockfile).await?, id.clone())
+        }
+        TargetEnvironmentRef::File { path } => {
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_owned())
+                .unwrap();
+            let text = tokio::fs::read_to_string(path).await.with_context(|| {
+                format!(
+                    "unable to read target environment from {}",
+                    quoted_path(path)
+                )
+            })?;
+            (text, name)
+        }
+    };
+
+    Ok((name, toml::from_str(&toml_text)?))
+}
+
 /// Loads the given `TargetEnvironment` from a registry or directory.
 async fn load_environment<'a>(
     env_id: &'a TargetEnvironmentRef,

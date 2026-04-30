@@ -9,6 +9,7 @@ use environment::{CandidateWorld, CandidateWorlds, TargetEnvironment, TriggerTyp
 pub use loader::ApplicationToValidate;
 use loader::ComponentToValidate;
 use spin_manifest::schema::v2::TargetEnvironmentRef;
+pub use environment::load_environment_def;
 
 use crate::environment::RealisedTargets;
 

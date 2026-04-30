@@ -73,6 +73,11 @@ pub struct TemplateNewCommandCore {
 /// Scaffold a new application based on a template.
 #[derive(Parser, Debug)]
 pub struct NewCommand {
+    /// The Spin platform or runtime for which you want to develop the application.
+    /// If present, Spin will offer only templates tailored for that environment.
+    #[clap(long, short = 'E')]
+    target_environment: Option<String>,
+
     #[clap(flatten)]
     options: TemplateNewCommandCore,
 }
@@ -94,7 +99,7 @@ pub struct AddCommand {
 
 impl NewCommand {
     pub async fn run(&self) -> Result<()> {
-        self.options.run(TemplateVariantInfo::NewApplication).await
+        self.options.run(self.target_environment.as_ref(), TemplateVariantInfo::NewApplication).await
     }
 }
 
@@ -120,15 +125,32 @@ impl AddCommand {
             );
         }
         self.options
-            .run(TemplateVariantInfo::AddComponent { manifest_path })
+            .run(None /* TODO: extract from manifest? */, TemplateVariantInfo::AddComponent { manifest_path })
             .await
     }
 }
 
 impl TemplateNewCommandCore {
-    pub async fn run(&self, variant: TemplateVariantInfo) -> Result<()> {
-        let template_manager = TemplateManager::try_default()
-            .context("Failed to construct template directory path")?;
+    pub async fn run(&self, target_environment: Option<&String>, variant: TemplateVariantInfo) -> Result<()> {
+        let template_manager = match target_environment {
+            Some(env) => {
+                //   - resolve the TE
+                let env_ref = spin_manifest::schema::v2::TargetEnvironmentRef::File { path: PathBuf::from(env) };
+                let cache = spin_loader::cache::Cache::new(None).await?;
+                let (env_name, env_def) = spin_environments::load_environment_def(&env_ref, &cache).await?;
+                //   - create a TM for it
+                let template_manager = TemplateManager::for_environment(&env_name)?;
+                //   - install the templates to that TM
+                let (env_templates_repo, env_templates_tag) = env_def.templates();
+                if let Some(env_templates_repo) = env_templates_repo {
+                    let source = spin_templates::TemplateSource::try_from_git(env_templates_repo, &env_templates_tag.cloned(), crate::build_info::SPIN_VERSION)?;
+                    template_manager.install(&source, &spin_templates::InstallOptions::default(), &DiscardingReporter).await?;
+                }
+                template_manager
+            }
+            None => TemplateManager::try_default()
+                .context("Failed to construct template directory path")?
+        };
 
         let (name, template_id) = self.resolve_name_template_syntax(&template_manager, &variant)?;
 
@@ -390,6 +412,15 @@ fn validate_name(name: &str) -> Result<String, String> {
         "Each segment of the name must start with a letter. {invalid_text} {verb} not start with a letter"
     );
     Err(msg)
+}
+
+struct DiscardingReporter;
+
+impl spin_templates::ProgressReporter for DiscardingReporter {
+    fn report(&self, _: impl AsRef<str>) {
+        // Commit it then to the flames: for it can contain nothing but
+        // sophistry and illusion.
+    }
 }
 
 #[cfg(test)]

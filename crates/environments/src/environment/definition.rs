@@ -23,6 +23,8 @@ pub struct EnvironmentDefinition {
     triggers: HashMap<String, TriggerEnvironment>,
     #[serde(default)]
     default: Option<TriggerEnvironment>,
+    #[serde(default)]
+    metadata: Option<Metadata>,
 }
 
 /// The environment definition for a trigger, comprising the worlds which are
@@ -53,6 +55,11 @@ impl EnvironmentDefinition {
 
     pub fn default(&self) -> Option<&TriggerEnvironment> {
         self.default.as_ref()
+    }
+
+    pub fn templates(&self) -> (Option<&String>, Option<&String>) {
+        let meta = self.metadata.as_ref();
+        (meta.and_then(|m| m.templates_repo.as_ref()), meta.and_then(|m| m.templates_tag.as_ref()))
     }
 }
 
@@ -148,6 +155,14 @@ impl std::fmt::Display for WorldName {
 
         Ok(())
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct Metadata {
+    #[serde(default)]
+    templates_repo: Option<String>,
+    #[serde(default)]
+    templates_tag: Option<String>,
 }
 
 #[cfg(test)]

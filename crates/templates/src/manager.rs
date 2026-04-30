@@ -112,6 +112,12 @@ impl TemplateManager {
         Ok(Self::new(store))
     }
 
+    /// Creates an environment-specific `TemplateManager` for the default install location.
+    pub fn for_environment(env: &str) -> anyhow::Result<Self> {
+        let store = TemplateStore::for_environment(env)?;
+        Ok(Self::new(store))
+    }
+
     pub(crate) fn new(store: TemplateStore) -> Self {
         Self { store }
     }

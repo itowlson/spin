@@ -23,6 +23,11 @@ impl TemplateStore {
         Ok(Self::new(data_dir()?.join("templates")))
     }
 
+    pub(crate) fn for_environment(env: &str) -> anyhow::Result<Self> {
+        let env_dir = UNSAFE_CHARACTERS.replace_all(env, "_");
+        Ok(Self::new(data_dir()?.join("templates").join(".envs").join(env_dir.as_ref())))
+    }
+
     pub(crate) fn get_directory(&self, id: impl AsRef<str>) -> PathBuf {
         self.root.join(Self::relative_dir(id.as_ref()))
     }
