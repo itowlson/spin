@@ -67,18 +67,23 @@ pub async fn load_environments<'a>(
 /// NOTE: this bypasses the lockfile (at least for now), because it is called in
 /// contexts where the app dir does not yet exist. Don't use it if locky goodness
 /// if what you're all about.
-pub async fn load_environment_def<'a>(env_ref: &'a TargetEnvironmentRef,cache: &spin_loader::cache::Cache) -> anyhow::Result<(String, EnvironmentDefinition)> {
+pub async fn load_environment_def<'a>(
+    env_ref: &'a TargetEnvironmentRef,
+    cache: &spin_loader::cache::Cache,
+) -> anyhow::Result<(String, EnvironmentDefinition)> {
     let lockfile = TargetEnvironmentLockfile::default();
     let lockfile = Arc::new(tokio::sync::RwLock::new(lockfile));
 
     let (toml_text, name) = match env_ref {
-        TargetEnvironmentRef::DefaultRegistry(id) => {
-            (load_env_def_toml_from_registry(DEFAULT_ENV_DEF_REGISTRY_PREFIX, id, cache, &lockfile)
-                .await?, id.clone())
-        }
-        TargetEnvironmentRef::Registry { registry, id } => {
-            (load_env_def_toml_from_registry(registry, id, cache, &lockfile).await?, id.clone())
-        }
+        TargetEnvironmentRef::DefaultRegistry(id) => (
+            load_env_def_toml_from_registry(DEFAULT_ENV_DEF_REGISTRY_PREFIX, id, cache, &lockfile)
+                .await?,
+            id.clone(),
+        ),
+        TargetEnvironmentRef::Registry { registry, id } => (
+            load_env_def_toml_from_registry(registry, id, cache, &lockfile).await?,
+            id.clone(),
+        ),
         TargetEnvironmentRef::File { path } => {
             let name = path
                 .file_stem()

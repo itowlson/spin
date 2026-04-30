@@ -59,7 +59,10 @@ impl EnvironmentDefinition {
 
     pub fn templates(&self) -> (Option<&String>, Option<&String>) {
         let meta = self.metadata.as_ref();
-        (meta.and_then(|m| m.templates_repo.as_ref()), meta.and_then(|m| m.templates_tag.as_ref()))
+        (
+            meta.and_then(|m| m.templates_repo.as_ref()),
+            meta.and_then(|m| m.templates_tag.as_ref()),
+        )
     }
 }
 

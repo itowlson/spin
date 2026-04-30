@@ -99,7 +99,12 @@ pub struct AddCommand {
 
 impl NewCommand {
     pub async fn run(&self) -> Result<()> {
-        self.options.run(self.target_environment.as_ref(), TemplateVariantInfo::NewApplication).await
+        self.options
+            .run(
+                self.target_environment.as_ref(),
+                TemplateVariantInfo::NewApplication,
+            )
+            .await
     }
 }
 
@@ -125,31 +130,51 @@ impl AddCommand {
             );
         }
         self.options
-            .run(None /* TODO: extract from manifest? */, TemplateVariantInfo::AddComponent { manifest_path })
+            .run(
+                None, /* TODO: extract from manifest? */
+                TemplateVariantInfo::AddComponent { manifest_path },
+            )
             .await
     }
 }
 
 impl TemplateNewCommandCore {
-    pub async fn run(&self, target_environment: Option<&String>, variant: TemplateVariantInfo) -> Result<()> {
+    pub async fn run(
+        &self,
+        target_environment: Option<&String>,
+        variant: TemplateVariantInfo,
+    ) -> Result<()> {
         let template_manager = match target_environment {
             Some(env) => {
                 //   - resolve the TE
-                let env_ref = spin_manifest::schema::v2::TargetEnvironmentRef::File { path: PathBuf::from(env) };
+                let env_ref = spin_manifest::schema::v2::TargetEnvironmentRef::File {
+                    path: PathBuf::from(env),
+                };
                 let cache = spin_loader::cache::Cache::new(None).await?;
-                let (env_name, env_def) = spin_environments::load_environment_def(&env_ref, &cache).await?;
+                let (env_name, env_def) =
+                    spin_environments::load_environment_def(&env_ref, &cache).await?;
                 //   - create a TM for it
                 let template_manager = TemplateManager::for_environment(&env_name)?;
                 //   - install the templates to that TM
                 let (env_templates_repo, env_templates_tag) = env_def.templates();
                 if let Some(env_templates_repo) = env_templates_repo {
-                    let source = spin_templates::TemplateSource::try_from_git(env_templates_repo, &env_templates_tag.cloned(), crate::build_info::SPIN_VERSION)?;
-                    template_manager.install(&source, &spin_templates::InstallOptions::default(), &DiscardingReporter).await?;
+                    let source = spin_templates::TemplateSource::try_from_git(
+                        env_templates_repo,
+                        &env_templates_tag.cloned(),
+                        crate::build_info::SPIN_VERSION,
+                    )?;
+                    template_manager
+                        .install(
+                            &source,
+                            &spin_templates::InstallOptions::default(),
+                            &DiscardingReporter,
+                        )
+                        .await?;
                 }
                 template_manager
             }
             None => TemplateManager::try_default()
-                .context("Failed to construct template directory path")?
+                .context("Failed to construct template directory path")?,
         };
 
         let (name, template_id) = self.resolve_name_template_syntax(&template_manager, &variant)?;
