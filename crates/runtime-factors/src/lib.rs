@@ -1,6 +1,7 @@
 mod build;
 
 pub use build::FactorsBuilder;
+use spin_factor_host_components::HostComponentsFactor;
 
 use std::cell::OnceCell;
 use std::collections::HashMap;
@@ -38,6 +39,7 @@ pub struct TriggerFactors {
     pub pg: OutboundPgFactor,
     pub mysql: OutboundMysqlFactor,
     pub llm: LlmFactor,
+    pub host_components: HostComponentsFactor,
 }
 
 impl TriggerFactors {
@@ -64,6 +66,7 @@ impl TriggerFactors {
                 spin_factor_llm::spin::default_engine_creator(state_dir)
                     .context("failed to configure LLM factor")?,
             ),
+            host_components: HostComponentsFactor::new(),
         })
     }
 }
