@@ -1,0 +1,15 @@
+[package]
+name = "spin-factor-host-components"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+spin-core = { path = "../core" }
+spin-factor-wasi = { path = "../factor-wasi" }
+spin-factors = { path = "../factors" }
+tokio = { workspace = true, features = ["fs"] }
+tracing = { workspace = true }
+wasmtime-wasi = { workspace = true }
