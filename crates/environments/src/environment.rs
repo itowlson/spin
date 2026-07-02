@@ -10,8 +10,8 @@ mod env_loader;
 mod lockfile;
 
 pub use catalogue::Catalogue;
+pub use definition::{ConfigurationConstraints, EnvironmentDefinition, HostComponentSource};
 use definition::WorldName;
-pub use definition::{ConfigurationConstraints, EnvironmentDefinition};
 pub use env_loader::load_environment_def;
 
 use crate::Targets;

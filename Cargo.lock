@@ -9262,10 +9262,11 @@ dependencies = [
 
 [[package]]
 name = "spin-factor-host-components"
-version = "4.1.0-pre0"
+version = "4.3.0-pre0"
 dependencies = [
  "anyhow",
  "spin-core",
+ "spin-environments",
  "spin-factor-wasi",
  "spin-factors",
  "tokio",

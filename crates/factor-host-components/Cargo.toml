@@ -8,6 +8,7 @@ license = { workspace = true }
 [dependencies]
 anyhow = { workspace = true }
 spin-core = { path = "../core" }
+spin-environments = { path = "../environments" }
 spin-factor-wasi = { path = "../factor-wasi" }
 spin-factors = { path = "../factors" }
 tokio = { workspace = true, features = ["fs"] }

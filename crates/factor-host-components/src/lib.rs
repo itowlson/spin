@@ -13,9 +13,17 @@ use tokio::sync::Mutex;
 
 use crate::{linker::HostComponentInstance, loader::{LoadedHostComponent, instantiate_host_component}};
 
-const TEST_TEST_TEST_PATHS: &[&str] = &["/home/ivan/testing/wondercomp/target/wasm32-wasip2/release/wondercomp.wasm"];
+enum ComponentSource {
+    Local { path: PathBuf },
+}
 
-type ComponentSource = PathBuf;
+impl From<&spin_environments::HostComponentSource> for ComponentSource {
+    fn from(value: &spin_environments::HostComponentSource) -> Self {
+        match value {
+            spin_environments::HostComponentSource::Local { path } => ComponentSource::Local { path: path.clone() },
+        }
+    }
+}
 
 type SharedService = Arc<Mutex<HostComponentInstance>>;
 
@@ -28,10 +36,26 @@ pub struct HostComponentsFactor {
     // interfaces: HashMap<String, LazyService>,
 }
 
+impl ComponentSource {
+    fn read(&self) -> anyhow::Result<Vec<u8>> {
+        match self {
+            Self::Local { path } => Ok(std::fs::read(path)?)
+        }
+    }
+}
+
+impl std::fmt::Display for ComponentSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ComponentSource::Local { path } => path.display().fmt(f),
+        }
+    }
+}
+
 impl HostComponentsFactor {
     /// Creates a new `HostComponentsFactor`.
-    pub fn new() -> Self {
-        let component_sources = TEST_TEST_TEST_PATHS.iter().map(PathBuf::from).collect();
+    pub fn new(environment: &[spin_environments::HostComponentSource]) -> Self {
+        let component_sources = environment.iter().map(|s| s.into()).collect();
         // let engine = hosting::create_host_engine().unwrap();
         Self { component_sources, host_components: Default::default() }
     }
