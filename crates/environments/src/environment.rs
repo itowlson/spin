@@ -10,7 +10,7 @@ mod env_loader;
 mod lockfile;
 
 pub use catalogue::Catalogue;
-pub use definition::EnvironmentDefinition;
+pub use definition::{HostComponentSource, EnvironmentDefinition};
 use definition::WorldName;
 pub use env_loader::load_environment_def;
 

@@ -31,8 +31,8 @@ pub fn load_host_component(
     engine: &Engine,
     source: &crate::ComponentSource,
 ) -> anyhow::Result<LoadedHostComponent> {
-    let bytes = std::fs::read(source)
-        .with_context(|| format!("failed to read host component from {}", source.display()))?;
+    let bytes = source.read()
+        .with_context(|| format!("failed to read host component from {source}"))?;
     load_host_component_from_bytes(engine, source, &bytes)
 }
 
@@ -44,7 +44,7 @@ fn load_host_component_from_bytes(
 ) -> anyhow::Result<LoadedHostComponent> {
     let component = Component::new(engine, bytes)
         .map_err(convert_error)
-        .with_context(|| format!("failed to compile host component '{}'", source.display()))?;
+        .with_context(|| format!("failed to compile host component '{source}'"))?;
 
     let component_type = component.component_type();
     let mut exported_interfaces = Vec::new();
@@ -67,8 +67,7 @@ fn load_host_component_from_bytes(
     }
 
     tracing::info!(
-        "Loaded host component '{}' with {} exported interface(s): [{}]",
-        source.display(),
+        "Loaded host component '{source}' with {} exported interface(s): [{}]",
         exported_interfaces.len(),
         exported_interfaces
             .iter()
@@ -78,7 +77,7 @@ fn load_host_component_from_bytes(
     );
 
     Ok(LoadedHostComponent {
-        name: source.to_string_lossy().to_string(),
+        name: source.to_string(),
         component,
         exported_interfaces,
     })

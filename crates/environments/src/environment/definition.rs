@@ -64,6 +64,10 @@ impl EnvironmentDefinition {
     pub fn plugins(&self) -> &[String] {
         &self.metadata.plugins
     }
+
+    pub fn host_components(&self) -> &[HostComponentSource] {
+        &self.metadata.host_components
+    }
 }
 
 /// A reference to a world in an [EnvironmentDefinition]. This is formed
@@ -170,6 +174,14 @@ pub struct Metadata {
     templates: Option<GitRepo>,
     #[serde(default)]
     plugins: Vec<String>,
+    #[serde(default)]
+    host_components: Vec<HostComponentSource>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+pub enum HostComponentSource {
+    Local { path: std::path::PathBuf },
 }
 
 #[derive(Debug, serde::Deserialize)]
