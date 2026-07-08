@@ -86,8 +86,8 @@ macro_rules! exemplars_to_otel {
 
 /// Converts a WASI Gauge to an OTel Gauge
 macro_rules! wasi_gauge_to_otel {
-    ($gauge:expr, $number_type:ty) => {
-        Box::new(opentelemetry_sdk::metrics::data::Gauge {
+    ($gauge:expr, $number_type:ty, $case:ident) => {
+        opentelemetry_sdk::metrics::data::AggregatedMetrics::$case(opentelemetry_sdk::metrics::data::Gauge {
             data_points: $gauge
                 .data_points
                 .iter()
@@ -102,14 +102,14 @@ macro_rules! wasi_gauge_to_otel {
                 None => None,
             },
             time: $gauge.time.into(),
-        })
+        }.into())
     };
 }
 
 /// Converts a WASI Sum to an OTel Sum
 macro_rules! wasi_sum_to_otel {
-    ($sum:expr, $number_type:ty) => {
-        Box::new(opentelemetry_sdk::metrics::data::Sum {
+    ($sum:expr, $number_type:ty, $case:ident) => {
+        opentelemetry_sdk::metrics::data::AggregatedMetrics::$case(opentelemetry_sdk::metrics::data::Sum {
             data_points: $sum
                 .data_points
                 .iter()
@@ -123,7 +123,7 @@ macro_rules! wasi_sum_to_otel {
             time: $sum.time.into(),
             temporality: $sum.temporality.into(),
             is_monotonic: $sum.is_monotonic,
-        })
+        }.into())
     };
 }
 
@@ -161,7 +161,7 @@ macro_rules! wasi_histogram_to_otel {
 /// Converts a WASI ExponentialHistogram to an OTel ExponentialHistogram
 macro_rules! wasi_exponential_histogram_to_otel {
     ($histogram:expr, $number_type:ty) => {
-        Box::new(opentelemetry_sdk::metrics::data::ExponentialHistogram {
+        Box::new(opentelemetry_sdk::metrics::Aggregation::ExponentialHistogram {
             data_points: $histogram
                 .data_points
                 .iter()
@@ -195,13 +195,13 @@ macro_rules! wasi_exponential_histogram_to_otel {
 }
 
 impl From<wasi::otel::metrics::MetricData>
-    for Box<dyn opentelemetry_sdk::metrics::data::Aggregation>
+    for opentelemetry_sdk::metrics::data::AggregatedMetrics
 {
     fn from(value: wasi::otel::metrics::MetricData) -> Self {
         match value {
-            wasi::otel::metrics::MetricData::F64Sum(s) => wasi_sum_to_otel!(s, f64),
-            wasi::otel::metrics::MetricData::S64Sum(s) => wasi_sum_to_otel!(s, i64),
-            wasi::otel::metrics::MetricData::U64Sum(s) => wasi_sum_to_otel!(s, u64),
+            wasi::otel::metrics::MetricData::F64Sum(s) => wasi_sum_to_otel!(s, f64, F64),
+            wasi::otel::metrics::MetricData::S64Sum(s) => wasi_sum_to_otel!(s, i64, I64),
+            wasi::otel::metrics::MetricData::U64Sum(s) => wasi_sum_to_otel!(s, u64, U64),
             wasi::otel::metrics::MetricData::F64Gauge(g) => wasi_gauge_to_otel!(g, f64),
             wasi::otel::metrics::MetricData::S64Gauge(g) => wasi_gauge_to_otel!(g, i64),
             wasi::otel::metrics::MetricData::U64Gauge(g) => wasi_gauge_to_otel!(g, u64),

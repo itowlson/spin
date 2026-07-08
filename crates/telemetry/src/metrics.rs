@@ -4,7 +4,7 @@ use opentelemetry_otlp::WithHttpConfig;
 use opentelemetry_sdk::{
     Resource,
     metrics::{
-        Aggregation, Instrument, SdkMeterProvider, Stream, new_view,
+        Aggregation, Instrument, SdkMeterProvider, Stream,
         periodic_reader_with_async_runtime::PeriodicReader,
     },
     resource::{EnvResourceDetector, ResourceDetector, TelemetryResourceDetector},
@@ -73,13 +73,12 @@ pub(crate) fn otel_metrics_layer<S: Subscriber + for<'span> LookupSpan<'span>>(
     // Apply any caller-supplied histogram bucket overrides as views. This crate stays agnostic
     // about which metrics need custom boundaries — the owning crate describes them.
     for buckets in histogram_buckets {
-        provider_builder = provider_builder.with_view(new_view(
-            Instrument::new().name(buckets.metric_name),
-            Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
-                boundaries: buckets.boundaries,
+        provider_builder = provider_builder.with_view(move |_instrument| {
+            Stream::builder().with_name(buckets.metric_name).with_aggregation(Aggregation::ExplicitBucketHistogram {
+                boundaries: buckets.boundaries.clone(),
                 record_min_max: true,
-            }),
-        )?);
+            }).build().ok()
+        });
     }
     let meter_provider = provider_builder.build();
 

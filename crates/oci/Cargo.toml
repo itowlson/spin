@@ -12,17 +12,16 @@ chrono = { workspace = true }
 dirs = { workspace = true }
 docker_credential = "1"
 docker-registry = { version = "0.9", default-features = false }
-# Force a TLS feature on docker-registry's reqwest 0.13. Building `-p spin-oci` in
-# isolation doesn't pull in `oci-client` (which is what activates `reqwest/native-tls`
-# on 0.13 during a workspace build), so without this docker-registry fails to compile
-# because items it uses are gated behind reqwest's `__tls` cfg.
-reqwest_0_13 = { package = "reqwest", version = "0.13", default-features = false, features = ["native-tls"] }
 flate2 = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
 # TODO: can align on semver here and in crates/environments when the next, post-0.17.0 release is available
 oci-client = { git = "https://github.com/oras-project/rust-oci-client", rev = "49c409df9a544f2d02ae4ae6a5fd8510ec74f438", default-features = false, features = ["native-tls"] }
-reqwest = { workspace = true }
+# Force a TLS feature on docker-registry's reqwest 0.13. Building `-p spin-oci` in
+# isolation doesn't pull in `oci-client` (which is what activates `reqwest/native-tls`
+# on 0.13 during a workspace build), so without this docker-registry fails to compile
+# because items it uses are gated behind reqwest's `__tls` cfg.
+reqwest = { workspace = true, features = ["native-tls"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 spin-common = { path = "../common" }
