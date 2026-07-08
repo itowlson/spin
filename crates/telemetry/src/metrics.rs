@@ -4,7 +4,7 @@ use opentelemetry_otlp::WithHttpConfig;
 use opentelemetry_sdk::{
     Resource,
     metrics::{
-        Aggregation, Instrument, SdkMeterProvider, Stream,
+        Aggregation, SdkMeterProvider, Stream,
         periodic_reader_with_async_runtime::PeriodicReader,
     },
     resource::{EnvResourceDetector, ResourceDetector, TelemetryResourceDetector},

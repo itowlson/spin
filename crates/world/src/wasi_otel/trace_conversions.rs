@@ -13,6 +13,7 @@ impl From<wasi::otel::tracing::SpanData> for opentelemetry_sdk::trace::SpanData 
             span_context: value.span_context.into(),
             parent_span_id: opentelemetry::trace::SpanId::from_hex(&value.parent_span_id)
                 .unwrap_or(opentelemetry::trace::SpanId::INVALID),
+            parent_span_is_remote: false,
             span_kind: value.span_kind.into(),
             name: value.name.into(),
             start_time: value.start_time.into(),

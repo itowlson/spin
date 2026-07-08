@@ -19,7 +19,7 @@ pub fn extract_trace_context<'a>(req: impl Into<HeaderExtractor<'a>>) {
     let extractor = req.into();
     let parent_context =
         global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
-    tracing::Span::current().set_parent(parent_context);
+    _ = tracing::Span::current().set_parent(parent_context);
 }
 
 pub enum HeaderInjector<'a> {

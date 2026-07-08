@@ -129,8 +129,8 @@ macro_rules! wasi_sum_to_otel {
 
 /// Converts a WASI Histogram to an OTel Histogram
 macro_rules! wasi_histogram_to_otel {
-    ($histogram:expr, $number_type:ty) => {
-        Box::new(opentelemetry_sdk::metrics::data::Histogram {
+    ($histogram:expr, $number_type:ty, $case:ident) => {
+        opentelemetry_sdk::metrics::data::AggregatedMetrics::$case(opentelemetry_sdk::metrics::data::Histogram {
             data_points: $histogram
                 .data_points
                 .iter()
@@ -154,14 +154,14 @@ macro_rules! wasi_histogram_to_otel {
             start_time: $histogram.start_time.into(),
             time: $histogram.time.into(),
             temporality: $histogram.temporality.into(),
-        })
+        }.into())
     };
 }
 
 /// Converts a WASI ExponentialHistogram to an OTel ExponentialHistogram
 macro_rules! wasi_exponential_histogram_to_otel {
-    ($histogram:expr, $number_type:ty) => {
-        Box::new(opentelemetry_sdk::metrics::Aggregation::ExponentialHistogram {
+    ($histogram:expr, $number_type:ty, $case:ident) => {
+        opentelemetry_sdk::metrics::data::AggregatedMetrics::$case(opentelemetry_sdk::metrics::data::ExponentialHistogram {
             data_points: $histogram
                 .data_points
                 .iter()
@@ -190,7 +190,7 @@ macro_rules! wasi_exponential_histogram_to_otel {
             start_time: $histogram.start_time.into(),
             time: $histogram.time.into(),
             temporality: $histogram.temporality.into(),
-        })
+        }.into())
     };
 }
 
@@ -202,20 +202,20 @@ impl From<wasi::otel::metrics::MetricData>
             wasi::otel::metrics::MetricData::F64Sum(s) => wasi_sum_to_otel!(s, f64, F64),
             wasi::otel::metrics::MetricData::S64Sum(s) => wasi_sum_to_otel!(s, i64, I64),
             wasi::otel::metrics::MetricData::U64Sum(s) => wasi_sum_to_otel!(s, u64, U64),
-            wasi::otel::metrics::MetricData::F64Gauge(g) => wasi_gauge_to_otel!(g, f64),
-            wasi::otel::metrics::MetricData::S64Gauge(g) => wasi_gauge_to_otel!(g, i64),
-            wasi::otel::metrics::MetricData::U64Gauge(g) => wasi_gauge_to_otel!(g, u64),
-            wasi::otel::metrics::MetricData::F64Histogram(h) => wasi_histogram_to_otel!(h, f64),
-            wasi::otel::metrics::MetricData::S64Histogram(h) => wasi_histogram_to_otel!(h, i64),
-            wasi::otel::metrics::MetricData::U64Histogram(h) => wasi_histogram_to_otel!(h, u64),
+            wasi::otel::metrics::MetricData::F64Gauge(g) => wasi_gauge_to_otel!(g, f64, F64),
+            wasi::otel::metrics::MetricData::S64Gauge(g) => wasi_gauge_to_otel!(g, i64, I64),
+            wasi::otel::metrics::MetricData::U64Gauge(g) => wasi_gauge_to_otel!(g, u64, U64),
+            wasi::otel::metrics::MetricData::F64Histogram(h) => wasi_histogram_to_otel!(h, f64, F64),
+            wasi::otel::metrics::MetricData::S64Histogram(h) => wasi_histogram_to_otel!(h, i64, I64),
+            wasi::otel::metrics::MetricData::U64Histogram(h) => wasi_histogram_to_otel!(h, u64, U64),
             wasi::otel::metrics::MetricData::F64ExponentialHistogram(h) => {
-                wasi_exponential_histogram_to_otel!(h, f64)
+                wasi_exponential_histogram_to_otel!(h, f64, F64)
             }
             wasi::otel::metrics::MetricData::S64ExponentialHistogram(h) => {
-                wasi_exponential_histogram_to_otel!(h, i64)
+                wasi_exponential_histogram_to_otel!(h, i64, I64)
             }
             wasi::otel::metrics::MetricData::U64ExponentialHistogram(h) => {
-                wasi_exponential_histogram_to_otel!(h, u64)
+                wasi_exponential_histogram_to_otel!(h, u64, U64)
             }
         }
     }
