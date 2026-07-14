@@ -177,7 +177,7 @@ impl UpCommandInner {
         if app_source == AppSource::None {
             if self.help {
                 let mut child = self
-                    .start_trigger(trigger_command(HELP_ARGS_ONLY_TRIGGER_TYPE), None, &[])
+                    .start_trigger(trigger_command(HELP_ARGS_ONLY_TRIGGER_TYPE), None, &[], &[])
                     .await?;
                 let _ = child.wait().await?;
                 return Ok(());
@@ -208,13 +208,13 @@ impl UpCommandInner {
             if is_multi {
                 // For now, only common flags are allowed on multi-trigger apps.
                 let mut child = self
-                    .start_trigger(trigger_command(HELP_ARGS_ONLY_TRIGGER_TYPE), None, &[])
+                    .start_trigger(trigger_command(HELP_ARGS_ONLY_TRIGGER_TYPE), None, &[], &[])
                     .await?;
                 let _ = child.wait().await?;
                 return Ok(());
             }
             for cmd in trigger_cmds {
-                let mut help_process = self.start_trigger(cmd.clone(), None, &[]).await?;
+                let mut help_process = self.start_trigger(cmd.clone(), None, &[], &[]).await?;
                 _ = help_process.wait().await;
             }
             return Ok(());
@@ -225,6 +225,19 @@ impl UpCommandInner {
         } else {
             app_source.warn_if_not_latest_build(self.profile());
         }
+
+        let host_components = if let ResolvedAppSource::File { manifest_path, manifest } = &resolved_app_source {
+            let envs = &manifest.application.targets;
+            if envs.len() == 1 {
+                let loaded_env = spin_environments::load_environment_def(&envs[0], manifest_path.parent().unwrap()).await?;
+                let hcs = loaded_env.env_def.host_components().iter().map(|hc| hc.to_string()).collect();
+                hcs
+            } else {
+                vec![]  // TODO: if there is more than one env??????????
+            }
+        } else {
+            vec![]
+        };
 
         let mut locked_app = self
             .load_resolved_app_source(resolved_app_source, &working_dir)
@@ -269,7 +282,7 @@ impl UpCommandInner {
             local_app_dir,
         };
 
-        let trigger_processes = self.start_trigger_processes(trigger_cmds, run_opts).await?;
+        let trigger_processes = self.start_trigger_processes(trigger_cmds, run_opts, &host_components).await?;
         let pids = get_pids(&trigger_processes);
 
         set_kill_on_ctrl_c(&pids)?;
@@ -338,6 +351,7 @@ impl UpCommandInner {
         self,
         trigger_cmds: Vec<Vec<String>>,
         run_opts: RunTriggerOpts,
+        host_components: &[String],
     ) -> anyhow::Result<Vec<tokio::process::Child>> {
         let is_multi = trigger_cmds.len() > 1;
 
@@ -372,7 +386,7 @@ impl UpCommandInner {
                 None => self.trigger_args.iter().collect(),
             };
             let child = self
-                .start_trigger(cmd.clone(), Some(run_opts.clone()), &trigger_args)
+                .start_trigger(cmd.clone(), Some(run_opts.clone()), &trigger_args, host_components)
                 .await
                 .context("Failed to start trigger process")?;
             trigger_processes.push(child);
@@ -393,6 +407,7 @@ impl UpCommandInner {
         trigger_cmd: Vec<String>,
         opts: Option<RunTriggerOpts>,
         trigger_args: &[&OsString],
+        host_components: &[String],
     ) -> Result<tokio::process::Child, anyhow::Error> {
         // The docs for `current_exe` warn that this may be insecure because it could be executed
         // via hard-link. I think it should be fine as long as we aren't `setuid`ing this binary.
@@ -411,6 +426,10 @@ impl UpCommandInner {
 
             if let Some(local_app_dir) = local_app_dir {
                 cmd.env(SPIN_LOCAL_APP_DIR, local_app_dir);
+            }
+
+            for hc in host_components {
+                cmd.arg("--host-component-source").arg(hc);
             }
 
             cmd.kill_on_drop(true);

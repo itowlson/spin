@@ -17,14 +17,6 @@ enum ComponentSource {
     Local { path: PathBuf },
 }
 
-impl From<&spin_environments::HostComponentSource> for ComponentSource {
-    fn from(value: &spin_environments::HostComponentSource) -> Self {
-        match value {
-            spin_environments::HostComponentSource::Local { path } => ComponentSource::Local { path: path.clone() },
-        }
-    }
-}
-
 type SharedService = Arc<Mutex<HostComponentInstance>>;
 
 /// A factor for providing variables to components.
@@ -54,8 +46,8 @@ impl std::fmt::Display for ComponentSource {
 
 impl HostComponentsFactor {
     /// Creates a new `HostComponentsFactor`.
-    pub fn new(environment: &[spin_environments::HostComponentSource]) -> Self {
-        let component_sources = environment.iter().map(|s| s.into()).collect();
+    pub fn new(sources: &[String]) -> Self {
+        let component_sources = sources.iter().map(|s| ComponentSource::Local { path: PathBuf::from(s) }).collect();
         // let engine = hosting::create_host_engine().unwrap();
         Self { component_sources, host_components: Default::default() }
     }
@@ -66,7 +58,7 @@ impl Factor for HostComponentsFactor {
     type AppState = AppState;
     type InstanceBuilder = InstanceState;
 
-    fn init(&mut self, ctx: &mut impl InitContext<Self>) -> anyhow::Result<()> {
+    fn init<T: InitContext<Self>>(&mut self, ctx: &mut T) -> anyhow::Result<()> {
         let linker = ctx.linker();
         // let engine = linker.engine().clone();
         let engine = hosting::create_host_engine()?;
