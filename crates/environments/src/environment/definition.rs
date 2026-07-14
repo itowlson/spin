@@ -184,6 +184,14 @@ pub enum HostComponentSource {
     Local { path: std::path::PathBuf },
 }
 
+impl HostComponentSource {
+    pub fn to_string(&self) -> String {
+        match self {
+            HostComponentSource::Local { path } => path.display().to_string(),
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub struct GitRepo {
     url: String,

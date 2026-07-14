@@ -48,6 +48,7 @@ impl TriggerFactors {
         working_dir: impl Into<PathBuf>,
         allow_transient_writes: bool,
         experimental_wasi_otel: bool,
+        host_component_sources: &[String],
         spin_version: &str,
     ) -> anyhow::Result<Self> {
         Ok(Self {
@@ -66,7 +67,7 @@ impl TriggerFactors {
                 spin_factor_llm::spin::default_engine_creator(state_dir)
                     .context("failed to configure LLM factor")?,
             ),
-            host_components: HostComponentsFactor::new(),
+            host_components: HostComponentsFactor::new(host_component_sources),
         })
     }
 }
@@ -136,6 +137,9 @@ pub struct TriggerAppArgs {
     #[clap(long, value_parser = clap::value_parser!(VariableSource),
         value_name = "KEY=VALUE | KEY=@FILE | @FILE.json | @FILE.toml")]
     pub variable: Vec<VariableSource>,
+
+    #[clap(long, hide = true)]
+    pub host_component_source: Vec<String>,
 
     /// Cache variables to avoid reading files twice
     #[clap(skip)]

@@ -54,6 +54,7 @@ impl RuntimeFactorsBuilder for FactorsBuilder {
             config.working_dir.clone(),
             args.allow_transient_write,
             args.experimental_wasi_otel,
+            &args.host_component_source,
             spin_version,
         )
         .context("failed to create factors")?;

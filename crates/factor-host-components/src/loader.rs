@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::{Path}, sync::Arc};
 
 use anyhow::{anyhow, Context};
-use spin_core::wasmtime::{Engine, Store, component::{Component, Linker, types::ComponentItem}};
+use spin_core::wasmtime::{Engine, Store, component::{Component, Linker, types::{ComponentItem}}};
 use tokio::sync::Mutex;
 use wasmtime_wasi::{DirPerms, FilePerms};
 
@@ -50,10 +50,10 @@ fn load_host_component_from_bytes(
     let mut exported_interfaces = Vec::new();
 
     for (export_name, item) in component_type.exports(engine) {
-        if let ComponentItem::ComponentInstance(instance) = item {
+        if let ComponentItem::ComponentInstance(instance) = item.ty {
             let mut functions = Vec::new();
             for (func_name, func_item) in instance.exports(engine) {
-                if let ComponentItem::ComponentFunc(_) = func_item {
+                if let ComponentItem::ComponentFunc(_) = func_item.ty {
                     functions.push(func_name.to_string());
                 }
             }
