@@ -22,8 +22,8 @@ pub struct LoadedHostComponent {
 pub struct ExportedInterface {
     /// Fully qualified interface name (e.g., "example:cache/store@0.1.0")
     pub name: String,
-    /// Function names within this interface
-    pub functions: Vec<String>,
+    /// Function names within this interface and if they are async // TODO: express this more maintainably
+    pub functions: Vec<(String, bool)>,
 }
 
 /// Load a host component from a Wasm file, inspecting its exports.
@@ -54,7 +54,15 @@ fn load_host_component_from_bytes(
             let mut functions = Vec::new();
             for (func_name, func_item) in instance.exports(engine) {
                 if let ComponentItem::ComponentFunc(_) = func_item.ty {
-                    functions.push(func_name.to_string());
+                    let func_name = func_name.to_string();
+                    let is_async = {
+                        // TODO: fewer crimes
+                        let ComponentItem::ComponentFunc(fff) = func_item.ty else {
+                            panic!();
+                        };
+                        fff.async_()
+                    };
+                    functions.push((func_name, is_async));
                 }
             }
             if !functions.is_empty() {
@@ -97,7 +105,7 @@ pub async fn instantiate_host_component(
     wasmtime_wasi::p2::add_to_linker_async(&mut host_linker)
         .map_err(convert_error)
         .context("failed to add WASI P2 to host component linker")?;
-    // wasmtime_wasi::p3::add_to_linker(&mut host_linker).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
+    wasmtime_wasi::p3::add_to_linker(&mut host_linker).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
 
     let mut wasi_builder = wasmtime_wasi::WasiCtxBuilder::new();
     wasi_builder.inherit_stderr();
@@ -159,7 +167,7 @@ pub async fn instantiate_host_component(
             })?;
 
         let mut func_indices = HashMap::new();
-        for func_name in &iface.functions {
+        for (func_name, _) in &iface.functions {
             let func_index = instance
                 .get_export_index(&mut store, Some(&iface_index), func_name)
                 .ok_or_else(|| {
