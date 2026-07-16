@@ -6,7 +6,7 @@ use spin_core::wasmtime;
 
 use crate::{SharedService, error::convert_error, loader::ExportedInterface};
 
-pub fn link_bindings<T: Send>(linker: &mut Linker<T>, interface: &ExportedInterface, handler: SharedService) -> anyhow::Result<()> { //interface: &ExportedInterface) -> anyhow::Result<()> {
+pub fn link_bindings<T: spin_factors::InitContext<crate::HostComponentsFactor>>(linker: &mut Linker<T::StoreData>, interface: &ExportedInterface, handler: SharedService) -> anyhow::Result<()> { //interface: &ExportedInterface) -> anyhow::Result<()> {
     let mut linker_instance = linker
         .instance(&interface.name)
         .map_err(convert_error)
@@ -62,6 +62,7 @@ async fn forward_to_host_component_concurrent<T: Send>(handler: SharedService, a
 pub struct HostComponentInstance {
     pub store: Store<HostComponentStoreData>,
     pub instance: Instance,
+    pub instance_pre: spin_core::InstancePre<crate::InstanceState>,
     /// Cached export indices: interface_name -> (interface_index, {func_name -> func_index})
     pub export_indices: HashMap<String, (ComponentExportIndex, HashMap<String, ComponentExportIndex>)>,
 }
