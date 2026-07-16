@@ -101,11 +101,16 @@ pub async fn instantiate_host_component(
     data_dir: Option<&Path>,
 ) -> anyhow::Result<SharedService> {
     let mut host_linker: Linker<HostComponentStoreData> = Linker::new(&engine);
+    let mut host_linker2: Linker<crate::InstanceState> = Linker::new(&engine);
 
     wasmtime_wasi::p2::add_to_linker_async(&mut host_linker)
         .map_err(convert_error)
         .context("failed to add WASI P2 to host component linker")?;
     wasmtime_wasi::p3::add_to_linker(&mut host_linker).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
+    wasmtime_wasi::p2::add_to_linker_async(&mut host_linker2)
+        .map_err(convert_error)
+        .context("failed to add WASI P2 to host component linker")?;
+    wasmtime_wasi::p3::add_to_linker(&mut host_linker2).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
 
     let mut wasi_builder = wasmtime_wasi::WasiCtxBuilder::new();
     wasi_builder.inherit_stderr();
@@ -138,6 +143,8 @@ pub async fn instantiate_host_component(
             component_dir.display()
         );
     }
+
+    let instance_pre = host_linker2.instantiate_pre(&loaded.component).unwrap();
 
     let wasi = wasi_builder.build();
 
@@ -187,6 +194,7 @@ pub async fn instantiate_host_component(
     let service = HostComponentInstance {
         store,
         instance,
+        instance_pre,
         export_indices,
     };
 
