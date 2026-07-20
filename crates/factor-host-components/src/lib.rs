@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 
 use crate::{linker::HostComponentInstance, loader::{LoadedHostComponent, instantiate_host_component}};
 
+#[derive(Clone, Debug)]
 enum ComponentSource {
     Local { path: PathBuf },
 }
@@ -53,6 +54,13 @@ impl HostComponentsFactor {
     }
 }
 
+struct HCReq<'a> {
+    itf_name: String,
+    func_name: String,
+    params: &'a [spin_core::wasmtime::component::Val],
+    results: &'a mut [spin_core::wasmtime::component::Val],
+}
+
 impl Factor for HostComponentsFactor {
     type RuntimeConfig = ();
     type AppState = AppState;
@@ -62,6 +70,24 @@ impl Factor for HostComponentsFactor {
         let linker = ctx.linker();
         // let engine = linker.engine().clone();
         let engine = hosting::create_host_engine()?;
+
+        for cs in &self.component_sources {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<HCReq>(1024);
+            let cs = cs.clone();
+            let engine = engine.clone();
+
+            let t = std::thread::spawn(|| {
+                let rt = tokio::runtime::Builder::new_multi_thread().enable_all().name("host-components-worker").build().unwrap();
+                rt.block_on(async move {
+                    let hc = loader::load_host_component(&engine, &cs).unwrap();
+                    let hci = instantiate_host_component(engine, hc.clone(), None).await.unwrap();
+                    while let Some(msg) = rx.recv().await {
+                        let mut guard = hci.lock().await;
+                        let _res = guard.call_func_concurrent(&msg.itf_name, &msg.func_name, msg.params, msg.results).await;
+                    }
+                });
+            });
+        }
 
         // TODO: async or parallelise
         self.host_components = self.component_sources

@@ -50,8 +50,8 @@ async fn forward_to_host_component(handler: SharedService, interface_name: Strin
         .map_err(|e| spin_core::wasmtime::Error::msg(e.to_string()))
 }
 
-async fn forward_to_host_component_concurrent<T: Send>(handler: SharedService, accessor: &wasmtime::component::Accessor<T>, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
-    handler.lock().await.call_func_concurrent(accessor, &interface_name, &func_name, params, results).await
+async fn forward_to_host_component_concurrent<T: Send>(handler: SharedService, _accessor: &wasmtime::component::Accessor<T>, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
+    handler.lock().await.call_func_concurrent(/*accessor,*/ &interface_name, &func_name, params, results).await
         .map_err(|e| spin_core::wasmtime::Error::msg(e.to_string()))
 }
 
@@ -103,23 +103,23 @@ impl HostComponentInstance {
         Ok(func)
     }
     
-    async fn call_func(&mut self, interface_name: &str, func_name: &str, params: &[Val], results: &mut [Val]) -> wasmtime::Result<()> {
+    pub async fn call_func(&mut self, interface_name: &str, func_name: &str, params: &[Val], results: &mut [Val]) -> wasmtime::Result<()> {
         let func = self.get_func(interface_name, func_name)?;
         func.call_async(&mut self.store, params, results).await?;
         Ok(())
     }
 
-    async fn call_func_concurrent<T: Send>(&mut self, accessor: &wasmtime::component::Accessor<T>, interface_name: &str, func_name: &str, params: &[Val], results: &mut [Val]) -> wasmtime::Result<()> {
+    pub async fn call_func_concurrent(&mut self, /*accessor: &wasmtime::component::Accessor<T>,*/ interface_name: &str, func_name: &str, params: &[Val], results: &mut [Val]) -> wasmtime::Result<()> {
         let func = self.get_func(interface_name, func_name)?;
 
         // Gives: Recursive `StoreContextMut::run_concurrent` calls not supported
-        // let res = self.store.run_concurrent(async |accessor| {
-        //    func.call_concurrent(accessor, params, results).await 
-        // }).await;
-        // res??;
+        let res = self.store.run_concurrent(async |accessor| {
+           func.call_concurrent(accessor, params, results).await 
+        }).await;
+        res??;
 
         // Gives: object used with the wrong store
-        func.call_concurrent(accessor, params, results).await?;
+        // func.call_concurrent(accessor, params, results).await?;
 
         Ok(())
     }
