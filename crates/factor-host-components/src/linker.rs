@@ -6,7 +6,7 @@ use spin_core::wasmtime;
 
 use crate::{SharedService, error::convert_error, loader::ExportedInterface};
 
-pub fn link_bindings<T: spin_factors::InitContext<crate::HostComponentsFactor>>(linker: &mut Linker<T::StoreData>, interface: &ExportedInterface, handler: SharedService) -> anyhow::Result<()> { //interface: &ExportedInterface) -> anyhow::Result<()> {
+pub fn link_bindings<T: spin_factors::InitContext<crate::HostComponentsFactor>>(linker: &mut Linker<T::StoreData>, interface: &ExportedInterface, handler: SharedService<T::StoreData>) -> anyhow::Result<()> { //interface: &ExportedInterface) -> anyhow::Result<()> {
     let mut linker_instance = linker
         .instance(&interface.name)
         .map_err(convert_error)
@@ -45,12 +45,12 @@ pub fn link_bindings<T: spin_factors::InitContext<crate::HostComponentsFactor>>(
     Ok(())
 }
 
-async fn forward_to_host_component(handler: SharedService, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
+async fn forward_to_host_component<SD>(handler: SharedService<SD>, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
     handler.lock().await.call_func(&interface_name, &func_name, params, results).await
         .map_err(|e| spin_core::wasmtime::Error::msg(e.to_string()))
 }
 
-async fn forward_to_host_component_concurrent<T: Send>(handler: SharedService, accessor: &wasmtime::component::Accessor<T>, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
+async fn forward_to_host_component_concurrent<T: Send, SD>(handler: SharedService<SD>, accessor: &wasmtime::component::Accessor<T>, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
     handler.lock().await.call_func_concurrent(accessor, &interface_name, &func_name, params, results).await
         .map_err(|e| spin_core::wasmtime::Error::msg(e.to_string()))
 }
@@ -59,10 +59,10 @@ async fn forward_to_host_component_concurrent<T: Send>(handler: SharedService, a
 ///
 /// The Instance is long-lived and shared across all guest requests,
 /// so it can maintain state (e.g., an in-memory cache).
-pub struct HostComponentInstance {
+pub struct HostComponentInstance<SD: 'static> {
     pub store: Store<HostComponentStoreData>,
     pub instance: Instance,
-    pub instance_pre: spin_core::InstancePre<crate::InstanceState>,
+    pub instance_pre: spin_core::InstancePre<SD>,
     /// Cached export indices: interface_name -> (interface_index, {func_name -> func_index})
     pub export_indices: HashMap<String, (ComponentExportIndex, HashMap<String, ComponentExportIndex>)>,
 }
@@ -82,7 +82,7 @@ impl wasmtime_wasi::WasiView for HostComponentStoreData {
     }
 }
 
-impl HostComponentInstance {
+impl<SD: 'static> HostComponentInstance<SD> {
     fn get_func(&mut self, interface_name: &str, func_name: &str) -> Result<wasmtime::component::Func, wasmtime::Error> {
         let (_, func_indices) = self
             .export_indices
