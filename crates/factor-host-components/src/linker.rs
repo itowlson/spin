@@ -45,6 +45,45 @@ pub fn link_bindings<T: Send>(linker: &mut Linker<T>, interface: &ExportedInterf
     Ok(())
 }
 
+pub fn link_bindings2<T: Send>(linker: &mut Linker<T>, interface: &ExportedInterface, tx: tokio::sync::mpsc::Sender<crate::HCReq>) -> anyhow::Result<()> {
+    let mut linker_instance = linker
+        .instance(&interface.name)
+        .map_err(convert_error)
+        .with_context(|| {
+            format!(
+                "failed to create linker instance for host component interface '{}'",
+                interface.name
+            )
+        })?;
+
+    for (func_name, is_async) in &interface.functions {
+        let interface_name = interface.name.clone();
+        let func_name_clone = func_name.clone();
+        let tx2 = tx.clone();
+
+        if *is_async {
+            linker_instance.func_new_concurrent(&func_name, move |_accessor, _func, params, results| {
+                let interface_name = interface_name.clone();
+                let func_name_clone = func_name_clone.clone();
+                let fut = forward_to_host_component_concurrent2(tx2.clone(), interface_name, func_name_clone, params, results);
+                Box::pin(fut)
+            })
+            .map_err(convert_error)
+            .with_context(|| format!("failed to link function {}/{}", interface.name, func_name))?;
+        } else {
+            linker_instance.func_new_async(&func_name, move |_store_ctx, _func_type, params, results| {
+                let interface_name = interface_name.clone();
+                let func_name_clone = func_name_clone.clone();
+                Box::new(forward_to_host_component2(tx2.clone(), interface_name, func_name_clone, params, results))
+            })
+            .map_err(convert_error)
+            .with_context(|| format!("failed to link function {}/{}", interface.name, func_name))?;
+        }
+    }
+
+    Ok(())
+}
+
 async fn forward_to_host_component(handler: SharedService, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
     handler.lock().await.call_func(&interface_name, &func_name, params, results).await
         .map_err(|e| spin_core::wasmtime::Error::msg(e.to_string()))
@@ -53,6 +92,36 @@ async fn forward_to_host_component(handler: SharedService, interface_name: Strin
 async fn forward_to_host_component_concurrent<T: Send>(handler: SharedService, _accessor: &wasmtime::component::Accessor<T>, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
     handler.lock().await.call_func_concurrent(/*accessor,*/ &interface_name, &func_name, params, results).await
         .map_err(|e| spin_core::wasmtime::Error::msg(e.to_string()))
+}
+
+async fn forward_to_host_component2(tx: tokio::sync::mpsc::Sender<crate::HCReq>, interface_name: String, func_name: String, params: &[Val], results: &mut [Val]) -> spin_core::wasmtime::Result<()> {
+    let params2 = params.iter().map(|v| v.clone()).collect();
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+    tx.send(crate::HCReq { is_async: false, itf_name: interface_name, func_name, params: params2, result_count: results.len(), resp_tx }).await.unwrap();
+    let resp = resp_rx.await.unwrap();
+    let mut index = 0;
+    for resp_val in resp.results {
+        results[index] = resp_val;
+        index += 1;
+    }
+    Ok(())
+    // handler.lock().await.call_func(&interface_name, &func_name, params, results).await
+    //     .map_err(|e| spin_core::wasmtime::Error::msg(e.to_string()))
+}
+
+async fn forward_to_host_component_concurrent2(tx: tokio::sync::mpsc::Sender<crate::HCReq>, /*_accessor: &wasmtime::component::Accessor<T>,*/ interface_name: String, func_name: String, params: &[Val], results: & mut [Val]) -> spin_core::wasmtime::Result<()> {
+    let params2 = params.iter().map(|v| v.clone()).collect();
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+    tx.send(crate::HCReq { is_async: false, itf_name: interface_name, func_name, params: params2, result_count: results.len(), resp_tx }).await.unwrap();
+    let resp = resp_rx.await.unwrap();
+    let mut index = 0;
+    for resp_val in resp.results {
+        results[index] = resp_val;
+        index += 1;
+    }
+    Ok(())
+    // handler.lock().await.call_func_concurrent(/*accessor,*/ &interface_name, &func_name, params, results).await
+    //     .map_err(|e| spin_core::wasmtime::Error::msg(e.to_string()))
 }
 
 /// A running host component service with its own Store and Instance.

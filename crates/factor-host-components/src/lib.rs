@@ -54,11 +54,24 @@ impl HostComponentsFactor {
     }
 }
 
-struct HCReq<'a> {
+// struct HCReq<'a> {
+//     is_async: bool,
+//     itf_name: String,
+//     func_name: String,
+//     params: &'a [spin_core::wasmtime::component::Val],
+//     results: &'a mut [spin_core::wasmtime::component::Val],
+// }
+struct HCReq {
+    is_async: bool,
     itf_name: String,
     func_name: String,
-    params: &'a [spin_core::wasmtime::component::Val],
-    results: &'a mut [spin_core::wasmtime::component::Val],
+    params: Vec<spin_core::wasmtime::component::Val>,
+    result_count: usize,
+    resp_tx: tokio::sync::oneshot::Sender<HCResp>,
+}
+#[derive(Debug)]
+struct HCResp {
+    results: Vec<spin_core::wasmtime::component::Val>,
 }
 
 impl Factor for HostComponentsFactor {
@@ -71,22 +84,38 @@ impl Factor for HostComponentsFactor {
         // let engine = linker.engine().clone();
         let engine = hosting::create_host_engine()?;
 
+        let mut hcs = vec![];
+
         for cs in &self.component_sources {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<HCReq>(1024);
-            let cs = cs.clone();
-            let engine = engine.clone();
+            let cs_cl = cs.clone();
+            let engine_cl = engine.clone();
 
             let t = std::thread::spawn(|| {
                 let rt = tokio::runtime::Builder::new_multi_thread().enable_all().name("host-components-worker").build().unwrap();
                 rt.block_on(async move {
-                    let hc = loader::load_host_component(&engine, &cs).unwrap();
-                    let hci = instantiate_host_component(engine, hc.clone(), None).await.unwrap();
+                    let hc = loader::load_host_component(&engine_cl, &cs_cl).unwrap();
+                    let hci = instantiate_host_component(engine_cl, hc.clone(), None).await.unwrap();
                     while let Some(msg) = rx.recv().await {
                         let mut guard = hci.lock().await;
-                        let _res = guard.call_func_concurrent(&msg.itf_name, &msg.func_name, msg.params, msg.results).await;
+                        let mut results = vec![spin_core::wasmtime::component::Val::Bool(false); msg.result_count];
+                        let res = if msg.is_async {
+                            guard.call_func(&msg.itf_name, &msg.func_name, &msg.params, &mut results).await
+                        } else {
+                            guard.call_func_concurrent(&msg.itf_name, &msg.func_name, &msg.params, &mut results).await
+                        };
+                        res.unwrap();
+                        msg.resp_tx.send(HCResp { results }).unwrap();
                     }
                 });
             });
+
+            let hc = loader::load_host_component(&engine, &cs).unwrap();
+            for interface in &hc.exported_interfaces {
+                linker::link_bindings2(linker, interface, tx.clone())?;
+            }
+
+            hcs.push(t);
         }
 
         // TODO: async or parallelise
@@ -95,16 +124,16 @@ impl Factor for HostComponentsFactor {
             .map(|cs| loader::load_host_component(&engine, cs))
             .collect::<Result<_, _>>()?;
 
-        let tokio_rt = tokio::runtime::Handle::current();
+        // let tokio_rt = tokio::runtime::Handle::current();
 
-        for hc in &self.host_components {
-            let instance_fut = instantiate_host_component(engine.clone(), hc.clone(), None);  // TODO: data dir?
-            let instance = tokio::task::block_in_place(|| tokio_rt.block_on(instance_fut))?;
+        // for hc in &self.host_components {
+        //     let instance_fut = instantiate_host_component(engine.clone(), hc.clone(), None);  // TODO: data dir?
+        //     let instance = tokio::task::block_in_place(|| tokio_rt.block_on(instance_fut))?;
 
-            for interface in &hc.exported_interfaces {
-                linker::link_bindings(linker, interface, instance.clone())?;
-            }
-        }
+        //     for interface in &hc.exported_interfaces {
+        //         linker::link_bindings(linker, interface, instance.clone())?;
+        //     }
+        // }
 
         Ok(())
     }
