@@ -7,7 +7,7 @@ use std::{path::PathBuf, sync::{Arc}};
 
 use spin_factors::{
     ConfigureAppContext, Factor, InitContext, PrepareContext, RuntimeFactors,
-    SelfInstanceBuilder, anyhow,
+    anyhow,
 };
 use tokio::sync::Mutex;
 
@@ -17,7 +17,7 @@ enum ComponentSource {
     Local { path: PathBuf },
 }
 
-type SharedService = Arc<Mutex<HostComponentInstance>>;
+type SharedService<SD> = Arc<Mutex<HostComponentInstance<SD>>>;
 
 /// A factor for providing variables to components.
 #[derive(Default)]
@@ -71,18 +71,18 @@ impl Factor for HostComponentsFactor {
 
         for hc in &self.host_components {
             let instance_fut = instantiate_host_component(engine.clone(), hc.clone(), None);  // TODO: data dir?
-            let instance: SharedService = tokio::task::block_in_place(|| tokio_rt.block_on(instance_fut))?;
+            let instance: SharedService<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_fut))?;
 
             for interface in &hc.exported_interfaces {
                 let instance2 = instance.clone();
-                ctx.link_bindings(move |linker, store_data_to_instance_state_fn| {
+                ctx.link_bindings(move |linker, _store_data_to_instance_state_fn| {
                     let mut linker_instance = linker.instance(&interface.name).unwrap();
                     for (func_name, is_async) in &interface.functions {
                         let instance3 = instance2.clone();
                         linker_instance.func_new_async(&func_name, move |mut store_ctx, f, params, results| {
                             let instance4 = instance3.clone();
                             let fut = async move {
-                                let inst_state = store_data_to_instance_state_fn(store_ctx.data_mut());
+                                // let inst_state = store_data_to_instance_state_fn(store_ctx.data_mut());
                                 let iii = instance4.lock().await.instance_pre.clone();
                                 let fie: spin_core::wasmtime::InstancePre<T::StoreData> = iii;
 

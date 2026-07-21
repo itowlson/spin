@@ -95,22 +95,22 @@ fn load_host_component_from_bytes(
 ///
 /// If `data_dir` is provided, the host component gets read-write filesystem
 /// access to `<data_dir>/<component_name>/` so it can persist state (e.g., via sqlite).
-pub async fn instantiate_host_component(
+pub async fn instantiate_host_component<SD: 'static>(
     engine: Engine,
     loaded: LoadedHostComponent,
     data_dir: Option<&Path>,
-) -> anyhow::Result<SharedService> {
+) -> anyhow::Result<SharedService<SD>> {
     let mut host_linker: Linker<HostComponentStoreData> = Linker::new(&engine);
-    let mut host_linker2: Linker<crate::InstanceState> = Linker::new(&engine);
+    let mut host_linker2: Linker<SD> = Linker::new(&engine);
 
     wasmtime_wasi::p2::add_to_linker_async(&mut host_linker)
         .map_err(convert_error)
         .context("failed to add WASI P2 to host component linker")?;
     wasmtime_wasi::p3::add_to_linker(&mut host_linker).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
-    wasmtime_wasi::p2::add_to_linker_async(&mut host_linker2)
-        .map_err(convert_error)
-        .context("failed to add WASI P2 to host component linker")?;
-    wasmtime_wasi::p3::add_to_linker(&mut host_linker2).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
+    // wasmtime_wasi::p2::add_to_linker_async(&mut host_linker2)
+    //     .map_err(convert_error)
+    //     .context("failed to add WASI P2 to host component linker")?;
+    // wasmtime_wasi::p3::add_to_linker(&mut host_linker2).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
 
     let mut wasi_builder = wasmtime_wasi::WasiCtxBuilder::new();
     wasi_builder.inherit_stderr();
