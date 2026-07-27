@@ -3,7 +3,7 @@ mod hosting;
 mod linker;
 mod loader;
 
-use std::{path::PathBuf, sync::{Arc}};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use spin_factors::{
     ConfigureAppContext, Factor, InitContext, PrepareContext, RuntimeFactors,
@@ -25,6 +25,7 @@ pub struct HostComponentsFactor {
     component_sources: Vec<ComponentSource>,
     // engine: spin_core::wasmtime::Engine,
     host_components: Vec<LoadedHostComponent>,
+    // interfaces: HashMap<String, SharedServiceKindOfThingButNotGeneric>,
     // interfaces: HashMap<String, LazyService>,
 }
 
@@ -49,7 +50,7 @@ impl HostComponentsFactor {
     pub fn new(sources: &[String]) -> Self {
         let component_sources = sources.iter().map(|s| ComponentSource::Local { path: PathBuf::from(s) }).collect();
         // let engine = hosting::create_host_engine().unwrap();
-        Self { component_sources, host_components: Default::default() }
+        Self { component_sources, host_components: Default::default(), /*interfaces: Default::default()*/ }
     }
 }
 
@@ -59,7 +60,7 @@ impl Factor for HostComponentsFactor {
     type InstanceBuilder = InstanceBuilder;
 
     fn init<T: InitContext<Self>>(&mut self, ctx: &mut T) -> anyhow::Result<()> {
-        let engine = hosting::create_host_engine()?;
+        let engine = ctx.linker().engine().clone(); // hosting::create_host_engine()?;
 
         // TODO: async or parallelise
         self.host_components = self.component_sources
@@ -70,39 +71,89 @@ impl Factor for HostComponentsFactor {
         let tokio_rt = tokio::runtime::Handle::current();
 
         for hc in &self.host_components {
-            let instance_fut = instantiate_host_component(engine.clone(), hc.clone(), None);  // TODO: data dir?
-            let instance: SharedService<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_fut))?;
+            let instance_fut = instantiate_host_component::<T>(engine.clone(), hc.clone(), None);  // TODO: data dir?
+            let preinst: SharedService<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_fut))?;
 
             for interface in &hc.exported_interfaces {
-                let instance2 = instance.clone();
-                ctx.link_bindings(move |linker, _store_data_to_instance_state_fn| {
-                    let mut linker_instance = linker.instance(&interface.name).unwrap();
-                    for (func_name, is_async) in &interface.functions {
-                        let instance3 = instance2.clone();
-                        linker_instance.func_new_async(&func_name, move |mut store_ctx, f, params, results| {
-                            let instance4 = instance3.clone();
+                let inst_pre_ur = tokio::task::block_in_place(|| tokio_rt.block_on(async { preinst.lock().await.instance_pre.clone() }));
+                let mut linker_instance = ctx.linker().instance(&interface.name).unwrap();
+                for (func_name, is_async) in &interface.functions {
+                    // let preinst3 = preinst2.clone();
+                    // let inst_pre = tokio::task::block_in_place(|| tokio_rt.block_on(async { preinst3.lock().await.instance_pre.clone() }));
+                    let inst_pre = inst_pre_ur.clone();
+                    let func_name_1 = func_name.clone();
+                    let func_name_2 = func_name.clone();
+                    if *is_async {
+                        linker_instance.func_new_concurrent(&func_name_1, move |accessor, _f, params, results| {
+                            let (_hc_instance, func) = accessor.with(|mut access| {
+                                use spin_core::wasmtime::AsContextMut;
+                                let tokio_rt_cb = tokio::runtime::Handle::current();
+                                let hc_instance = tokio::task::block_in_place(|| tokio_rt_cb.block_on(inst_pre.instantiate_async(access.as_context_mut()))).unwrap();
+                                let func = hc_instance.get_func(access.as_context_mut(), &func_name_2).unwrap();
+                                (hc_instance, func)
+                            });
                             let fut = async move {
-                                // let inst_state = store_data_to_instance_state_fn(store_ctx.data_mut());
-                                let iii = instance4.lock().await.instance_pre.clone();
-                                let fie: spin_core::wasmtime::InstancePre<T::StoreData> = iii;
-
-                                // okay StoreContextMut does fulfil AsContextMut but is the StoreData the wrong type?
-                                // the trouble is we can't prove that InitContext::StoreData is InstanceState
-                                
-                                // This doesn't work and is way too late anyway. If it *does* work,
-                                // we need to cache it in the InstanceState so you don't get different
-                                // instances on every call, but still, ugh.
-                                //
-                                // But since this *doesn't* work, it's moot.
-                                //
-                                let wat = fie.instantiate_async(store_ctx).await.unwrap();
+                                func.call_concurrent(accessor, params, results).await.unwrap();
                                 Ok(())
-                            };    
+                            };
+                            Box::pin(fut)
+                        }).unwrap();
+                    } else {
+                        linker_instance.func_new_async(&func_name_1, move |mut store_ctx, _f, params, results| {
+                            let inst_pre2 = inst_pre.clone();
+                            let func_name_3 = func_name_2.clone();
+                            let fut = async move {
+                                eprintln!("instantiating for normal fn");
+                                let hc_instance = inst_pre2.instantiate_async(&mut store_ctx).await.unwrap();
+                                eprintln!("get func {func_name_3}");
+                                let func = hc_instance.get_func(&mut store_ctx, &func_name_3).unwrap();
+                                eprintln!("got func {func_name_3}, calling");
+                                func.call_async(&mut store_ctx, params, results).await.unwrap();
+                                Ok(())
+                            };
                             Box::new(fut)
                         }).unwrap();
                     }
-                    Ok(())
-                })?;
+                }
+                // ctx.link_bindings(move |linker, _store_data_to_instance_state_fn| {
+                //     let mut linker_instance = linker.instance(&interface.name).unwrap();
+                //     for (func_name, is_async) in &interface.functions {
+                //         let preinst3 = preinst2.clone();
+                //         if *is_async {
+                //             linker_instance.func_new_concurrent(&func_name, move |accessor, _f, params, results| {
+                //                 let preinst4 = preinst3.clone();
+                //                 let fut = async move {
+                //                     let inst_pre = preinst4.lock().await.instance_pre.clone();
+                //                     let (hc_instance, func) = accessor.with(|mut access| {
+                //                         use spin_core::wasmtime::AsContextMut;
+                //                         let hc_instance = inst_pre.instantiate(access.as_context_mut()).unwrap();
+                //                         let func = hc_instance.get_func(access.as_context_mut(), &func_name).unwrap();
+                //                         (hc_instance, func)
+                //                     });
+                //                     func.call_concurrent(accessor, params, results).await.unwrap();
+                //                     Ok(())
+                //                 };
+                //                 Box::pin(fut)
+                //             }).unwrap();
+                //         } else {
+                //             linker_instance.func_new_async(&func_name, move |mut store_ctx, _f, params, results| {
+                //                 // let inst_st = store_data_to_instance_state_fn(store_ctx.data_mut());
+                //                 // let (inst_st, wasi_tbl) = T::get_data_with_table(store_ctx.data_mut());
+                //                 // let also_inst_st = T::get_data(store_ctx.data_mut());
+                //                 let preinst4 = preinst3.clone();
+                //                 let fut = async move {
+                //                     let inst_pre = preinst4.lock().await.instance_pre.clone();
+                //                     let hc_instance = inst_pre.instantiate_async(&mut store_ctx).await.unwrap();
+                //                     let fff = hc_instance.get_func(&mut store_ctx, &func_name).unwrap();
+                //                     fff.call_async(&mut store_ctx, params, results).await.unwrap();
+                //                     Ok(())
+                //                 };
+                //                 Box::new(fut)
+                //             }).unwrap();
+                //         }
+                //     }
+                //     Ok(())
+                // })?;
             }
         }
 
@@ -144,6 +195,8 @@ impl Factor for HostComponentsFactor {
         &self,
         _ctx: PrepareContext<T, Self>,
     ) -> anyhow::Result<Self::InstanceBuilder> {
+        // let wib = ctx.instance_builder::<spin_factor_wasi::WasiFactor>()?;
+        // wib.
         let mut wasi_builder = wasmtime_wasi::WasiCtxBuilder::new();
         wasi_builder.inherit_stderr();
         // TODO: perms
@@ -162,6 +215,9 @@ pub struct InstanceBuilder {
 pub struct InstanceState {
     wasi: wasmtime_wasi::WasiCtx,
     table: wasmtime_wasi::ResourceTable,
+    // cli: wasmtime_wasi::cli::WasiCliCtx,
+    // clocks: wasmtime_wasi::clocks::WasiClocksCtx,
+    instances: HashMap<String, spin_core::wasmtime::component::Instance>,
 }
 
 impl spin_factors::FactorInstanceBuilder for InstanceBuilder {
@@ -171,6 +227,9 @@ impl spin_factors::FactorInstanceBuilder for InstanceBuilder {
         Ok(Self::InstanceState {
             wasi: self.wasi_builder.build(),
             table: wasmtime_wasi::ResourceTable::with_capacity(100),
+            // cli: wasmtime_wasi::cli::WasiCliCtx::default(),
+            // clocks: wasmtime_wasi::clocks::WasiClocksCtx::default(),
+            instances: Default::default()
         })
     }
 }
@@ -185,7 +244,15 @@ impl wasmtime_wasi::WasiView for InstanceState {
 }
 
 impl InstanceState {
-    pub fn biscuits(&self) -> String {
-        "biscuits!".to_string()
+    pub fn wasi(&mut self) -> &mut wasmtime_wasi::WasiCtx {
+        &mut self.wasi
     }
+
+    // pub fn clocks(&mut self) -> &mut wasmtime_wasi::clocks::WasiClocksCtx {
+    //     self.wasi.clocks()
+    // }
+
+    // pub fn cli(&mut self) -> &mut wasmtime_wasi::cli::WasiCliCtx {
+    //     self.wasi.cli()
+    // }
 }
