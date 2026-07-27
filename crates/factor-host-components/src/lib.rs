@@ -3,7 +3,7 @@ mod hosting;
 mod linker;
 mod loader;
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use spin_factors::{
     ConfigureAppContext, Factor, InitContext, PrepareContext, RuntimeFactors,
@@ -60,7 +60,7 @@ impl Factor for HostComponentsFactor {
     type InstanceBuilder = InstanceBuilder;
 
     fn init<T: InitContext<Self>>(&mut self, ctx: &mut T) -> anyhow::Result<()> {
-        let engine = ctx.linker().engine().clone(); // hosting::create_host_engine()?;
+        let engine = ctx.linker().engine().clone();
 
         // TODO: async or parallelise
         self.host_components = self.component_sources
@@ -78,8 +78,6 @@ impl Factor for HostComponentsFactor {
                 let inst_pre_ur = tokio::task::block_in_place(|| tokio_rt.block_on(async { preinst.lock().await.instance_pre.clone() }));
                 let mut linker_instance = ctx.linker().instance(&interface.name).unwrap();
                 for (func_name, is_async) in &interface.functions {
-                    // let preinst3 = preinst2.clone();
-                    // let inst_pre = tokio::task::block_in_place(|| tokio_rt.block_on(async { preinst3.lock().await.instance_pre.clone() }));
                     let inst_pre = inst_pre_ur.clone();
                     let func_name_1 = func_name.clone();
                     let func_name_2 = func_name.clone();
@@ -115,70 +113,8 @@ impl Factor for HostComponentsFactor {
                         }).unwrap();
                     }
                 }
-                // ctx.link_bindings(move |linker, _store_data_to_instance_state_fn| {
-                //     let mut linker_instance = linker.instance(&interface.name).unwrap();
-                //     for (func_name, is_async) in &interface.functions {
-                //         let preinst3 = preinst2.clone();
-                //         if *is_async {
-                //             linker_instance.func_new_concurrent(&func_name, move |accessor, _f, params, results| {
-                //                 let preinst4 = preinst3.clone();
-                //                 let fut = async move {
-                //                     let inst_pre = preinst4.lock().await.instance_pre.clone();
-                //                     let (hc_instance, func) = accessor.with(|mut access| {
-                //                         use spin_core::wasmtime::AsContextMut;
-                //                         let hc_instance = inst_pre.instantiate(access.as_context_mut()).unwrap();
-                //                         let func = hc_instance.get_func(access.as_context_mut(), &func_name).unwrap();
-                //                         (hc_instance, func)
-                //                     });
-                //                     func.call_concurrent(accessor, params, results).await.unwrap();
-                //                     Ok(())
-                //                 };
-                //                 Box::pin(fut)
-                //             }).unwrap();
-                //         } else {
-                //             linker_instance.func_new_async(&func_name, move |mut store_ctx, _f, params, results| {
-                //                 // let inst_st = store_data_to_instance_state_fn(store_ctx.data_mut());
-                //                 // let (inst_st, wasi_tbl) = T::get_data_with_table(store_ctx.data_mut());
-                //                 // let also_inst_st = T::get_data(store_ctx.data_mut());
-                //                 let preinst4 = preinst3.clone();
-                //                 let fut = async move {
-                //                     let inst_pre = preinst4.lock().await.instance_pre.clone();
-                //                     let hc_instance = inst_pre.instantiate_async(&mut store_ctx).await.unwrap();
-                //                     let fff = hc_instance.get_func(&mut store_ctx, &func_name).unwrap();
-                //                     fff.call_async(&mut store_ctx, params, results).await.unwrap();
-                //                     Ok(())
-                //                 };
-                //                 Box::new(fut)
-                //             }).unwrap();
-                //         }
-                //     }
-                //     Ok(())
-                // })?;
             }
         }
-
-        // {
-        //     ctx.link_bindings(|linker, store_data_to_instance_state_fn| {
-        //         let mut linker_instance = linker.instance("arse").unwrap();
-        //         linker_instance.func_new_async("spork", move |mut store_ctx, f, params, results| {
-        //             let istate = store_data_to_instance_state_fn(store_ctx.data_mut());
-        //             // BWAHAHAHA
-        //             todo!()
-        //         });
-        //         Ok(())
-        //     })?;
-        // }
-        // let linker = ctx.linker();
-        // // let engine = linker.engine().clone();
-
-        // for hc in &self.host_components {
-        //     let instance_fut = instantiate_host_component(engine.clone(), hc.clone(), None);  // TODO: data dir?
-        //     let instance = tokio::task::block_in_place(|| tokio_rt.block_on(instance_fut))?;
-
-        //     for interface in &hc.exported_interfaces {
-        //         linker::link_bindings::<T>(linker, interface, instance.clone())?;
-        //     }
-        // }
 
         Ok(())
     }
@@ -215,9 +151,7 @@ pub struct InstanceBuilder {
 pub struct InstanceState {
     wasi: wasmtime_wasi::WasiCtx,
     table: wasmtime_wasi::ResourceTable,
-    // cli: wasmtime_wasi::cli::WasiCliCtx,
-    // clocks: wasmtime_wasi::clocks::WasiClocksCtx,
-    instances: HashMap<String, spin_core::wasmtime::component::Instance>,
+    // instances: HashMap<String, spin_core::wasmtime::component::Instance>,
 }
 
 impl spin_factors::FactorInstanceBuilder for InstanceBuilder {
@@ -227,9 +161,7 @@ impl spin_factors::FactorInstanceBuilder for InstanceBuilder {
         Ok(Self::InstanceState {
             wasi: self.wasi_builder.build(),
             table: wasmtime_wasi::ResourceTable::with_capacity(100),
-            // cli: wasmtime_wasi::cli::WasiCliCtx::default(),
-            // clocks: wasmtime_wasi::clocks::WasiClocksCtx::default(),
-            instances: Default::default()
+            // instances: Default::default()
         })
     }
 }
