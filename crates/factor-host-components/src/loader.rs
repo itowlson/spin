@@ -1,9 +1,8 @@
-use std::{collections::HashMap, path::{Path}, sync::Arc};
+use std::{path::{Path}, sync::Arc};
 
-use anyhow::{anyhow, Context};
-use spin_core::wasmtime::{Engine, Store, component::{Component, Linker, types::{ComponentItem}}};
+use anyhow::{Context};
+use spin_core::wasmtime::{Engine, component::{Component, Linker, types::{ComponentItem}}};
 use tokio::sync::Mutex;
-use wasmtime_wasi::{DirPerms, FilePerms};
 
 use crate::{SharedService, linker::{HostComponentInstance}};
 
@@ -100,217 +99,126 @@ pub async fn instantiate_host_component<T: spin_factors::InitContext<crate::Host
     loaded: LoadedHostComponent,
     data_dir: Option<&Path>,
 ) -> anyhow::Result<SharedService<T::StoreData>> {
-    // let mut host_linker: Linker<HostComponentStoreData> = Linker::new(&engine);
-    let mut host_linker2: Linker<T::StoreData> = Linker::new(&engine);
+    let mut host_linker: Linker<T::StoreData> = Linker::new(&engine);
 
-    // wasmtime_wasi::p2::add_to_linker_async(&mut host_linker)
-    //     .map_err(convert_error)
-    //     .context("failed to add WASI P2 to host component linker")?;
-    // wasmtime_wasi::p3::add_to_linker(&mut host_linker).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
-
-    wasmtime_wasi::p2::bindings::cli::environment::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::environment::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::exit::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::exit::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::stderr::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::stderr::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::stdin::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::stdin::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::stdout::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::stdout::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::terminal_input::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::terminal_input::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::terminal_output::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::terminal_output::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::terminal_stderr::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::terminal_stderr::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::terminal_stdin::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::terminal_stdin::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::cli::terminal_stdout::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::cli::terminal_stdout::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::cli::WasiCliCtxView { ctx: inst_st.wasi().cli(), table }
     }).unwrap();
 
-    wasmtime_wasi::p2::bindings::clocks::monotonic_clock::add_to_linker::<T::StoreData, wasmtime_wasi::clocks::WasiClocks>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::clocks::monotonic_clock::add_to_linker::<T::StoreData, wasmtime_wasi::clocks::WasiClocks>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::clocks::WasiClocksCtxView { ctx: inst_st.wasi().clocks(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::clocks::wall_clock::add_to_linker::<T::StoreData, wasmtime_wasi::clocks::WasiClocks>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::clocks::wall_clock::add_to_linker::<T::StoreData, wasmtime_wasi::clocks::WasiClocks>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::clocks::WasiClocksCtxView { ctx: inst_st.wasi().clocks(), table }
     }).unwrap();
 
-    wasmtime_wasi::p2::bindings::filesystem::preopens::add_to_linker::<T::StoreData, wasmtime_wasi::filesystem::WasiFilesystem>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::filesystem::preopens::add_to_linker::<T::StoreData, wasmtime_wasi::filesystem::WasiFilesystem>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::filesystem::WasiFilesystemCtxView { ctx: inst_st.wasi().filesystem(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::filesystem::types::add_to_linker::<T::StoreData, wasmtime_wasi::filesystem::WasiFilesystem>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::filesystem::types::add_to_linker::<T::StoreData, wasmtime_wasi::filesystem::WasiFilesystem>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::filesystem::WasiFilesystemCtxView { ctx: inst_st.wasi().filesystem(), table }
     }).unwrap();
 
-    wasmtime_wasi::p2::bindings::io::error::add_to_linker::<T::StoreData, HasIo>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::io::error::add_to_linker::<T::StoreData, HasIo>(&mut host_linker, |sd| {
         let (_inst_st, table) = T::get_data_with_table(sd);
         table
     }).unwrap();
-    wasmtime_wasi::p2::bindings::io::poll::add_to_linker::<T::StoreData, HasIo>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::io::poll::add_to_linker::<T::StoreData, HasIo>(&mut host_linker, |sd| {
         let (_inst_st, table) = T::get_data_with_table(sd);
         table
     }).unwrap();
-    wasmtime_wasi::p2::bindings::io::streams::add_to_linker::<T::StoreData, HasIo>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::io::streams::add_to_linker::<T::StoreData, HasIo>(&mut host_linker, |sd| {
         let (_inst_st, table) = T::get_data_with_table(sd);
         table
     }).unwrap();
 
-    wasmtime_wasi::p2::bindings::random::insecure::add_to_linker::<T::StoreData, wasmtime_wasi::random::WasiRandom>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::random::insecure::add_to_linker::<T::StoreData, wasmtime_wasi::random::WasiRandom>(&mut host_linker, |sd| {
         let (inst_st, _table) = T::get_data_with_table(sd);
         inst_st.wasi().random()
     }).unwrap();
-    wasmtime_wasi::p2::bindings::random::insecure_seed::add_to_linker::<T::StoreData, wasmtime_wasi::random::WasiRandom>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::random::insecure_seed::add_to_linker::<T::StoreData, wasmtime_wasi::random::WasiRandom>(&mut host_linker, |sd| {
         let (inst_st, _table) = T::get_data_with_table(sd);
         inst_st.wasi().random()
     }).unwrap();
-    wasmtime_wasi::p2::bindings::random::random::add_to_linker::<T::StoreData, wasmtime_wasi::random::WasiRandom>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::random::random::add_to_linker::<T::StoreData, wasmtime_wasi::random::WasiRandom>(&mut host_linker, |sd| {
         let (inst_st, _table) = T::get_data_with_table(sd);
         inst_st.wasi().random()
     }).unwrap();
 
-    wasmtime_wasi::p2::bindings::sockets::instance_network::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::sockets::instance_network::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::sockets::WasiSocketsCtxView { ctx: inst_st.wasi().sockets(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::sockets::ip_name_lookup::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::sockets::ip_name_lookup::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::sockets::WasiSocketsCtxView { ctx: inst_st.wasi().sockets(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::sockets::network::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker2, &wasmtime_wasi::p2::bindings::sockets::network::LinkOptions::default(), |sd| {
+    wasmtime_wasi::p2::bindings::sockets::network::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker, &wasmtime_wasi::p2::bindings::sockets::network::LinkOptions::default(), |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::sockets::WasiSocketsCtxView { ctx: inst_st.wasi().sockets(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::sockets::tcp::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::sockets::tcp::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::sockets::WasiSocketsCtxView { ctx: inst_st.wasi().sockets(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::sockets::tcp_create_socket::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::sockets::tcp_create_socket::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::sockets::WasiSocketsCtxView { ctx: inst_st.wasi().sockets(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::sockets::udp::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::sockets::udp::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::sockets::WasiSocketsCtxView { ctx: inst_st.wasi().sockets(), table }
     }).unwrap();
-    wasmtime_wasi::p2::bindings::sockets::udp_create_socket::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker2, |sd| {
+    wasmtime_wasi::p2::bindings::sockets::udp_create_socket::add_to_linker::<T::StoreData, wasmtime_wasi::sockets::WasiSockets>(&mut host_linker, |sd| {
         let (inst_st, table) = T::get_data_with_table(sd);
         wasmtime_wasi::sockets::WasiSocketsCtxView { ctx: inst_st.wasi().sockets(), table }
     }).unwrap();
 
-    // wasmtime_wasi::p2::add_to_linker_async(&mut host_linker2)
-    //     .map_err(convert_error)
-    //     .context("failed to add WASI P2 to host component linker")?;
-    // wasmtime_wasi::p3::add_to_linker(&mut host_linker2).map_err(convert_error).context("failed to add WASI P3 to host component linker")?;
-
-    let mut wasi_builder = wasmtime_wasi::WasiCtxBuilder::new();
-    wasi_builder.inherit_stderr();
-
-    // If a data directory is provided, give the host component read-write
-    // filesystem access to its own subdirectory.
-    if let Some(base_dir) = data_dir {
-        let component_dir = base_dir.join(&loaded.name);
-        tokio::fs::create_dir_all(&component_dir).await.with_context(|| {
-            format!(
-                "failed to create data directory for host component '{}' at {}",
-                loaded.name,
-                component_dir.display()
-            )
-        })?;
-        wasi_builder
-            .preopened_dir(&component_dir, "/data", DirPerms::all(), FilePerms::all())
-            .map_err(|e| anyhow::anyhow!(e))
-            .with_context(|| {
-                format!(
-                    "failed to preopen data directory {} for host component '{}'",
-                    component_dir.display(),
-                    loaded.name
-                )
-            })?;
-
-        tracing::info!(
-            "Host component '{}' has read-write access to {} (mounted at /data)",
-            loaded.name,
-            component_dir.display()
-        );
-    }
-
-    let instance_pre = host_linker2.instantiate_pre(&loaded.component).unwrap();
-
-    let wasi = wasi_builder.build();
-
-    // let store_data = HostComponentStoreData::new(wasi);
-
-    // let mut store = Store::new(&engine, store_data);
-
-    // let instance = host_linker
-    //     .instantiate_async(&mut store, &loaded.component)
-    //     .await
-    //     .map_err(convert_error)
-    //     .with_context(|| {
-    //         format!("failed to instantiate host component '{}'", loaded.name)
-    //     })?;
-
-    // // Build export index cache for fast lookup
-    // let mut export_indices = HashMap::new();
-    // for iface in &loaded.exported_interfaces {
-    //     let iface_index = instance
-    //         .get_export_index(&mut store, None, &iface.name)
-    //         .ok_or_else(|| {
-    //             anyhow!(
-    //                 "host component '{}' missing expected export '{}'",
-    //                 loaded.name,
-    //                 iface.name
-    //             )
-    //         })?;
-
-    //     let mut func_indices = HashMap::new();
-    //     for (func_name, _) in &iface.functions {
-    //         let func_index = instance
-    //             .get_export_index(&mut store, Some(&iface_index), func_name)
-    //             .ok_or_else(|| {
-    //                 anyhow!(
-    //                     "host component '{}' interface '{}' missing function '{}'",
-    //                     loaded.name,
-    //                     iface.name,
-    //                     func_name
-    //                 )
-    //             })?;
-    //         func_indices.insert(func_name.clone(), func_index);
-    //     }
-
-    //     export_indices.insert(iface.name.clone(), (iface_index, func_indices));
-    // }
+    let instance_pre = host_linker.instantiate_pre(&loaded.component).unwrap();
 
     let service = HostComponentInstance {
-        // store,
-        // instance,
         instance_pre,
-        // export_indices,
     };
 
     Ok(Arc::new(Mutex::new(service)))
