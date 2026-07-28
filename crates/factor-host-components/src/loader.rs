@@ -1,4 +1,4 @@
-use std::{path::{Path}, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Context};
 use spin_core::wasmtime::{Engine, component::{Component, Linker, types::{ComponentItem}}};
