@@ -1,5 +1,4 @@
 mod error;
-mod hosting;
 mod linker;
 mod loader;
 
@@ -11,13 +10,20 @@ use spin_factors::{
 };
 use tokio::sync::Mutex;
 
-use crate::{linker::HostComponentInstance, loader::{LoadedHostComponent, instantiate_host_component}};
+use crate::{linker::HostComponentInstancePre, loader::{LoadedHostComponent, instantiate_host_component}};
 
 enum ComponentSource {
     Local { path: PathBuf },
 }
 
-type SharedService<SD> = Arc<Mutex<HostComponentInstance<SD>>>;
+struct SharedService<SD: 'static>(Arc<Mutex<HostComponentInstancePre<SD>>>);
+
+impl<SD> SharedService<SD> {
+    fn instance_pre(&self) -> spin_core::InstancePre<SD> {
+        let tokio_rt = tokio::runtime::Handle::current();
+        tokio::task::block_in_place(|| tokio_rt.block_on(async { self.0.lock().await.instance_pre.clone() }))
+    }
+}
 
 /// A factor for providing variables to components.
 #[derive(Default)]
@@ -71,62 +77,11 @@ impl Factor for HostComponentsFactor {
         let tokio_rt = tokio::runtime::Handle::current();
 
         for hc in &self.host_components {
-            let instance_fut = instantiate_host_component::<T>(engine.clone(), hc.clone(), None);  // TODO: data dir?
-            let preinst: SharedService<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_fut))?;
+            let instance_pre_fut = instantiate_host_component::<T>(engine.clone(), hc.clone(), None);  // TODO: data dir?
+            let shared_instance_pre: SharedService<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_pre_fut))?;
 
             for interface in &hc.exported_interfaces {
-                let hc2 = hc.clone();
-                let interface2 = interface.clone();
-                let inst_pre_ur = tokio::task::block_in_place(|| tokio_rt.block_on(async { preinst.lock().await.instance_pre.clone() }));
-                let mut linker_instance = ctx.linker().instance(&interface.name).unwrap();
-                for (func_name, is_async) in &interface.functions {
-                    let inst_pre = inst_pre_ur.clone();
-                    let func_name_1 = func_name.clone();
-                    let func_name_2 = func_name.clone();
-                    let hc3 = hc2.clone();
-                    let interface3 = interface2.clone();
-                    if *is_async {
-                        linker_instance.func_new_concurrent(&func_name_1, move |accessor, _f, params, results| {
-                            let interface4 = interface3.clone();
-                            let hc4 = hc3.clone();
-                            let (_hc_instance, func) = accessor.with(|mut access| {
-                                use spin_core::wasmtime::AsContextMut;
-                                let tokio_rt_cb = tokio::runtime::Handle::current();
-                                let hc_instance = tokio::task::block_in_place(|| tokio_rt_cb.block_on(inst_pre.instantiate_async(access.as_context_mut()))).unwrap();
-                                let export_indices = snort_export_indices(&hc4, &hc_instance, access.as_context_mut()).unwrap();
-                                let (_ei, fmap) = export_indices.get(&interface4.name).expect("itf name->fmap lookup failed");
-                                let fi = fmap.get(&func_name_2).expect("fun name->index lookup failed");
-                                let func = hc_instance.get_func(access.as_context_mut(), fi).expect("fun index->THE THINGY lookup failed");
-                                (hc_instance, func)
-                            });
-                            let fut = async move {
-                                func.call_concurrent(accessor, params, results).await.unwrap();
-                                Ok(())
-                            };
-                            Box::pin(fut)
-                        }).unwrap();
-                    } else {
-                        linker_instance.func_new_async(&func_name_1, move |mut store_ctx, _f, params, results| {
-                            let inst_pre2 = inst_pre.clone();
-                            let hc4 = hc3.clone();
-                            let interface4 = interface3.clone();
-                            let func_name_3 = func_name_2.clone();
-                            let fut = async move {
-                                //eprintln!("instantiating for normal fn");
-                                let hc_instance = inst_pre2.instantiate_async(&mut store_ctx).await.unwrap();
-                                let export_indices = snort_export_indices(&hc4, &hc_instance, &mut store_ctx).unwrap();
-                                //eprintln!("get func {func_name_3}");
-                                let (_ei, fmap) = export_indices.get(&interface4.name).expect("itf name->fmap lookup failed");
-                                let fi = fmap.get(&func_name_3).expect("fun name->index lookup failed");
-                                let func = hc_instance.get_func(&mut store_ctx, fi).expect("fun index->THE THINGY lookup failed");
-                                // eprintln!("got func {func_name_3}, calling");
-                                func.call_async(&mut store_ctx, params, results).await.unwrap();
-                                Ok(())
-                            };
-                            Box::new(fut)
-                        }).unwrap();
-                    }
-                }
+                linker::link_interface(ctx, hc, &shared_instance_pre, interface);
             }
         }
 
@@ -153,50 +108,6 @@ impl Factor for HostComponentsFactor {
     }
 }
 
-fn snort_export_indices(loaded: &LoadedHostComponent, instance: &spin_core::Instance, mut store: impl spin_core::wasmtime::AsContextMut) -> anyhow::Result<HashMap<String, (spin_core::wasmtime::component::ComponentExportIndex, HashMap<String, spin_core::wasmtime::component::ComponentExportIndex>)>> {
-    use anyhow::anyhow;
-
-    let mut export_indices = HashMap::new();
-
-    for iface in &loaded.exported_interfaces {
-        let iface_index = instance
-            .get_export_index(&mut store, None, &iface.name)
-            .ok_or_else(|| {
-                anyhow!(
-                    "host component '{}' missing expected export '{}'",
-                    loaded.name,
-                    iface.name
-                )
-            })?;
-
-        let mut func_indices = HashMap::new();
-        for (func_name, _) in &iface.functions {
-            let func_index = instance
-                .get_export_index(&mut store, Some(&iface_index), func_name)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "host component '{}' interface '{}' missing function '{}'",
-                        loaded.name,
-                        iface.name,
-                        func_name
-                    )
-                })?;
-            func_indices.insert(func_name.clone(), func_index);
-        }
-
-        export_indices.insert(iface.name.clone(), (iface_index, func_indices));
-    }
-
-    // for (itf, (_iindex, fmap)) in &export_indices {
-    //     eprintln!("--- ITF {itf} ---");
-    //     for (fname, fin) in fmap {
-    //         eprintln!("* {fname} (idx={fin:?})");
-    //     }
-    // }
-
-    Ok(export_indices)
-}
-
 pub struct AppState {
 }
 
@@ -207,7 +118,7 @@ pub struct InstanceBuilder {
 pub struct InstanceState {
     wasi: wasmtime_wasi::WasiCtx,
     table: wasmtime_wasi::ResourceTable,
-    // instances: HashMap<String, spin_core::wasmtime::component::Instance>,
+    instances: HashMap<String, HashMap<String, spin_core::wasmtime::component::Func>>,
 }
 
 impl spin_factors::FactorInstanceBuilder for InstanceBuilder {
@@ -217,7 +128,7 @@ impl spin_factors::FactorInstanceBuilder for InstanceBuilder {
         Ok(Self::InstanceState {
             wasi: self.wasi_builder.build(),
             table: wasmtime_wasi::ResourceTable::with_capacity(100),
-            // instances: Default::default()
+            instances: Default::default()
         })
     }
 }
@@ -236,11 +147,26 @@ impl InstanceState {
         &mut self.wasi
     }
 
-    // pub fn clocks(&mut self) -> &mut wasmtime_wasi::clocks::WasiClocksCtx {
-    //     self.wasi.clocks()
-    // }
+    // Returning a clone seems vexing, but returning a reference runs
+    // means the store remains borrowed while trying to call the func, which
+    // makes the borrow checked mad
+    pub fn get_handler(&mut self, interface: &str, func_name: &str) -> Option<spin_core::wasmtime::component::Func> {
+        self.instances.get(interface)?.get(func_name).cloned()
+    }
 
-    // pub fn cli(&mut self) -> &mut wasmtime_wasi::cli::WasiCliCtx {
-    //     self.wasi.cli()
-    // }
+    pub fn set_handler(&mut self, interface: &str, func_name: &str, func: spin_core::wasmtime::component::Func) {
+        match self.instances.entry(interface.to_string()) {
+            std::collections::hash_map::Entry::Occupied(mut func_map) => {
+                match func_map.get_mut().entry(func_name.to_string()) {
+                    std::collections::hash_map::Entry::Occupied(_) => {},
+                    std::collections::hash_map::Entry::Vacant(func_entry) => { func_entry.insert(func); }
+                }
+            },
+            std::collections::hash_map::Entry::Vacant(func_map_entry) => {
+                let mut map = HashMap::default();
+                map.insert(func_name.to_string(), func);
+                func_map_entry.insert(map);
+            },
+        }
+    }
 }
