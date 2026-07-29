@@ -4,7 +4,7 @@ use anyhow::{Context};
 use spin_core::wasmtime::{Engine, component::{Component, Linker, types::{ComponentItem}}};
 use tokio::sync::Mutex;
 
-use crate::{SharedService, linker::{HostComponentInstance}};
+use crate::{SharedService, linker::{HostComponentInstancePre}};
 
 use super::error::convert_error;
 
@@ -217,11 +217,11 @@ pub async fn instantiate_host_component<T: spin_factors::InitContext<crate::Host
 
     let instance_pre = host_linker.instantiate_pre(&loaded.component).unwrap();
 
-    let service = HostComponentInstance {
+    let service = HostComponentInstancePre {
         instance_pre,
     };
 
-    Ok(Arc::new(Mutex::new(service)))
+    Ok(crate::SharedService(Arc::new(Mutex::new(service))))
 }
 
 struct HasIo;
