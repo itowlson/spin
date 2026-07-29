@@ -118,7 +118,7 @@ pub struct InstanceBuilder {
 pub struct InstanceState {
     wasi: wasmtime_wasi::WasiCtx,
     table: wasmtime_wasi::ResourceTable,
-    instances: HashMap<String, HashMap<String, spin_core::wasmtime::component::Func>>,
+    interface_map: HashMap<String, (spin_core::wasmtime::component::Instance, HashMap<String, spin_core::wasmtime::component::Func>)>,
 }
 
 impl spin_factors::FactorInstanceBuilder for InstanceBuilder {
@@ -128,7 +128,7 @@ impl spin_factors::FactorInstanceBuilder for InstanceBuilder {
         Ok(Self::InstanceState {
             wasi: self.wasi_builder.build(),
             table: wasmtime_wasi::ResourceTable::with_capacity(100),
-            instances: Default::default()
+            interface_map: Default::default()
         })
     }
 }
@@ -150,23 +150,35 @@ impl InstanceState {
     // Returning a clone seems vexing, but returning a reference runs
     // means the store remains borrowed while trying to call the func, which
     // makes the borrow checked mad
-    pub fn get_handler(&mut self, interface: &str, func_name: &str) -> Option<spin_core::wasmtime::component::Func> {
-        self.instances.get(interface)?.get(func_name).cloned()
+    pub(crate) fn get_handler(&mut self, interface: &str, func_name: &str) -> ExistingFuncMapping { // Option<spin_core::wasmtime::component::Func> {
+        let Some((handler_intance, func_map)) = self.interface_map.get(interface) else {
+            return ExistingFuncMapping::None;
+        };
+        match func_map.get(func_name) {
+            Some(func) => ExistingFuncMapping::Func(func.clone()),
+            None => ExistingFuncMapping::Instance(handler_intance.clone()),
+        }
     }
 
-    pub fn set_handler(&mut self, interface: &str, func_name: &str, func: spin_core::wasmtime::component::Func) {
-        match self.instances.entry(interface.to_string()) {
+    pub(crate) fn set_handler(&mut self, interface: &str, func_name: &str, instance: spin_core::wasmtime::component::Instance, func: spin_core::wasmtime::component::Func) {
+        match self.interface_map.entry(interface.to_string()) {
             std::collections::hash_map::Entry::Occupied(mut func_map) => {
-                match func_map.get_mut().entry(func_name.to_string()) {
+                match func_map.get_mut().1.entry(func_name.to_string()) {
                     std::collections::hash_map::Entry::Occupied(_) => {},
                     std::collections::hash_map::Entry::Vacant(func_entry) => { func_entry.insert(func); }
                 }
             },
-            std::collections::hash_map::Entry::Vacant(func_map_entry) => {
+            std::collections::hash_map::Entry::Vacant(interface_handler_entry) => {
                 let mut map = HashMap::default();
                 map.insert(func_name.to_string(), func);
-                func_map_entry.insert(map);
+                interface_handler_entry.insert((instance, map));
             },
         }
     }
+}
+
+pub(crate) enum ExistingFuncMapping {
+    None,
+    Instance(spin_core::wasmtime::component::Instance),
+    Func(spin_core::wasmtime::component::Func),
 }
