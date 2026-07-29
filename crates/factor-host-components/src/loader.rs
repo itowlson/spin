@@ -4,13 +4,13 @@ use anyhow::{Context};
 use spin_core::wasmtime::{Engine, component::{Component, Linker, types::{ComponentItem}}};
 use tokio::sync::Mutex;
 
-use crate::{SharedService, linker::{HostComponentInstancePre}};
+use crate::{SharedInstancePre, linker::{HostComponentInstancePre}};
 
 use super::error::convert_error;
 
 /// Information about a loaded (but not yet instantiated) host component.
 #[derive(Clone)]
-pub struct LoadedHostComponent {
+pub struct HostComponent {
     pub name: String,
     pub component: Component,
     pub exported_interfaces: Vec<ExportedInterface>,
@@ -29,7 +29,7 @@ pub struct ExportedInterface {
 pub fn load_host_component(
     engine: &Engine,
     source: &crate::ComponentSource,
-) -> anyhow::Result<LoadedHostComponent> {
+) -> anyhow::Result<HostComponent> {
     let bytes = source.read()
         .with_context(|| format!("failed to read host component from {source}"))?;
     load_host_component_from_bytes(engine, source, &bytes)
@@ -40,7 +40,7 @@ fn load_host_component_from_bytes(
     engine: &Engine,
     source: &crate::ComponentSource,
     bytes: &[u8],
-) -> anyhow::Result<LoadedHostComponent> {
+) -> anyhow::Result<HostComponent> {
     let component = Component::new(engine, bytes)
         .map_err(convert_error)
         .with_context(|| format!("failed to compile host component '{source}'"))?;
@@ -83,7 +83,7 @@ fn load_host_component_from_bytes(
             .join(", ")
     );
 
-    Ok(LoadedHostComponent {
+    Ok(HostComponent {
         name: source.to_string(),
         component,
         exported_interfaces,
@@ -96,9 +96,9 @@ fn load_host_component_from_bytes(
 /// access to `<data_dir>/<component_name>/` so it can persist state (e.g., via sqlite).
 pub async fn instantiate_host_component<T: spin_factors::InitContext<crate::HostComponentsFactor>>(
     engine: Engine,
-    loaded: LoadedHostComponent,
+    host_component: HostComponent,
     data_dir: Option<&Path>,
-) -> anyhow::Result<SharedService<T::StoreData>> {
+) -> anyhow::Result<SharedInstancePre<T::StoreData>> {
     let mut host_linker: Linker<T::StoreData> = Linker::new(&engine);
 
     wasmtime_wasi::p2::bindings::cli::environment::add_to_linker::<T::StoreData, wasmtime_wasi::cli::WasiCli>(&mut host_linker, |sd| {
@@ -215,13 +215,54 @@ pub async fn instantiate_host_component<T: spin_factors::InitContext<crate::Host
         wasmtime_wasi::sockets::WasiSocketsCtxView { ctx: inst_st.wasi().sockets(), table }
     }).unwrap();
 
-    let instance_pre = host_linker.instantiate_pre(&loaded.component).unwrap();
+    let instance_pre = host_linker.instantiate_pre(&host_component.component).unwrap();
+    let exports = get_export_indices(&host_component, &instance_pre).unwrap();
 
     let service = HostComponentInstancePre {
         instance_pre,
+        exports,
     };
 
-    Ok(crate::SharedService(Arc::new(Mutex::new(service))))
+    Ok(crate::SharedInstancePre(Arc::new(Mutex::new(service))))
+}
+
+fn get_export_indices<SD>(host_component: &HostComponent, instance: &spin_core::InstancePre<SD>) -> anyhow::Result<HashMap<String, (spin_core::wasmtime::component::ComponentExportIndex, HashMap<String, spin_core::wasmtime::component::ComponentExportIndex>)>> {
+    use anyhow::anyhow;
+
+    let mut export_indices = HashMap::new();
+
+    for iface in &host_component.exported_interfaces {
+        let iface_index = instance
+            .component()
+            .get_export_index(None, &iface.name)
+            .ok_or_else(|| {
+                anyhow!(
+                    "host component '{}' missing expected export '{}'",
+                    host_component.name,
+                    iface.name
+                )
+            })?;
+
+        let mut func_indices = HashMap::new();
+        for (func_name, _) in &iface.functions {
+            let func_index = instance
+                .component()
+                .get_export_index(Some(&iface_index), func_name)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "host component '{}' interface '{}' missing function '{}'",
+                        host_component.name,
+                        iface.name,
+                        func_name
+                    )
+                })?;
+            func_indices.insert(func_name.clone(), func_index);
+        }
+
+        export_indices.insert(iface.name.clone(), (iface_index, func_indices));
+    }
+
+    Ok(export_indices)
 }
 
 struct HasIo;
