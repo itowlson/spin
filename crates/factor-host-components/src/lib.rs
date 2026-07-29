@@ -4,35 +4,31 @@ mod loader;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
+use spin_core::wasmtime::component::ComponentExportIndex;
 use spin_factors::{
     ConfigureAppContext, Factor, InitContext, PrepareContext, RuntimeFactors,
     anyhow,
 };
 use tokio::sync::Mutex;
 
-use crate::{linker::HostComponentInstancePre, loader::{LoadedHostComponent, instantiate_host_component}};
+use crate::{linker::HostComponentInstancePre, loader::{HostComponent, instantiate_host_component}};
 
 enum ComponentSource {
     Local { path: PathBuf },
 }
 
-struct SharedService<SD: 'static>(Arc<Mutex<HostComponentInstancePre<SD>>>);
+struct SharedInstancePre<SD: 'static>(Arc<Mutex<HostComponentInstancePre<SD>>>);
 
-impl<SD> SharedService<SD> {
+impl<SD> SharedInstancePre<SD> {
     fn instance_pre(&self) -> spin_core::InstancePre<SD> {
         let tokio_rt = tokio::runtime::Handle::current();
         tokio::task::block_in_place(|| tokio_rt.block_on(async { self.0.lock().await.instance_pre.clone() }))
     }
-}
 
-/// A factor for providing variables to components.
-#[derive(Default)]
-pub struct HostComponentsFactor {
-    component_sources: Vec<ComponentSource>,
-    // engine: spin_core::wasmtime::Engine,
-    host_components: Vec<LoadedHostComponent>,
-    // interfaces: HashMap<String, SharedServiceKindOfThingButNotGeneric>,
-    // interfaces: HashMap<String, LazyService>,
+    fn export(&self, interface: &str, func: &str) -> Option<ComponentExportIndex> {
+        let tokio_rt = tokio::runtime::Handle::current();
+        tokio::task::block_in_place(|| tokio_rt.block_on(async { self.0.lock().await.exports.get(interface).and_then(|m| m.1.get(func).cloned()) }))
+    }
 }
 
 impl ComponentSource {
@@ -51,12 +47,18 @@ impl std::fmt::Display for ComponentSource {
     }
 }
 
+/// A factor for providing variables to components.
+#[derive(Default)]
+pub struct HostComponentsFactor {
+    component_sources: Vec<ComponentSource>,
+    host_components: Vec<HostComponent>,
+}
+
 impl HostComponentsFactor {
     /// Creates a new `HostComponentsFactor`.
     pub fn new(sources: &[String]) -> Self {
         let component_sources = sources.iter().map(|s| ComponentSource::Local { path: PathBuf::from(s) }).collect();
-        // let engine = hosting::create_host_engine().unwrap();
-        Self { component_sources, host_components: Default::default(), /*interfaces: Default::default()*/ }
+        Self { component_sources, host_components: Default::default() }
     }
 }
 
@@ -76,12 +78,12 @@ impl Factor for HostComponentsFactor {
 
         let tokio_rt = tokio::runtime::Handle::current();
 
-        for hc in &self.host_components {
-            let instance_pre_fut = instantiate_host_component::<T>(engine.clone(), hc.clone(), None);  // TODO: data dir?
-            let shared_instance_pre: SharedService<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_pre_fut))?;
+        for host_component in &self.host_components {
+            let instance_pre_fut = instantiate_host_component::<T>(engine.clone(), host_component.clone(), None);  // TODO: data dir?
+            let shared_instance_pre: SharedInstancePre<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_pre_fut))?;
 
-            for interface in &hc.exported_interfaces {
-                linker::link_interface(ctx, hc, &shared_instance_pre, interface);
+            for interface in &host_component.exported_interfaces {
+                linker::link_interface(ctx, &shared_instance_pre, interface);
             }
         }
 
