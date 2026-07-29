@@ -37,6 +37,7 @@ fn link_func<T: InitContext<HostComponentsFactor>>(linker_instance: &mut LinkerI
         let func_name = func_name_copy.clone();
         let interface_name = interface_name.clone();
         let func_export_index = func_export_index.clone();
+
         let fut = async move {
             let func = match T::get_data(store_ctx.data_mut()).get_handler(&interface_name, &func_name) {
                 crate::ExistingFuncMapping::Func(func) => func,
@@ -55,6 +56,7 @@ fn link_func<T: InitContext<HostComponentsFactor>>(linker_instance: &mut LinkerI
             func.call_async(&mut store_ctx, params, results).await.unwrap();
             Ok(())
         };
+
         Box::new(fut)
     }).unwrap();
 }
@@ -80,10 +82,12 @@ fn link_concurrent_func<T: InitContext<HostComponentsFactor>>(linker_instance: &
                 }
             }
         });
+
         let fut = async move {
             func.call_concurrent(accessor, params, results).await.unwrap();
             Ok(())
         };
+        
         Box::pin(fut)
     }).unwrap();
 }
