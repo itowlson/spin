@@ -95,11 +95,11 @@ fn load_host_component_from_bytes(
 /// If `data_dir` is provided, the host component gets read-write filesystem
 /// access to `<data_dir>/<component_name>/` so it can persist state (e.g., via sqlite).
 pub async fn instantiate_host_component<T: spin_factors::InitContext<crate::HostComponentsFactor>>(
-    engine: Engine,
+    engine: &Engine,
     host_component: HostComponent,
     data_dir: Option<&Path>,
 ) -> anyhow::Result<SharedInstancePre<T::StoreData>> {
-    let mut host_linker: Linker<T::StoreData> = Linker::new(&engine);
+    let mut host_linker: Linker<T::StoreData> = Linker::new(engine);
 
     link_wasi_p2::<T>(&mut host_linker)?;
     link_wasi_p3::<T>(&mut host_linker)?;

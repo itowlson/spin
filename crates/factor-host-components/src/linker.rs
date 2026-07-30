@@ -12,6 +12,7 @@ use crate::{HostComponentsFactor, SharedInstancePre, loader::{ExportedInterface}
 
 pub struct HostComponentInstancePre<SD: 'static> {
     pub instance_pre: spin_core::InstancePre<SD>,
+    // interface -> (interface_index, func -> func_index)
     pub exports: HashMap<String, (ComponentExportIndex, HashMap<String, ComponentExportIndex>)>,
 }
 
@@ -42,7 +43,7 @@ fn link_func<T: InitContext<HostComponentsFactor>>(linker_instance: &mut LinkerI
             let func = match T::get_data(store_ctx.data_mut()).get_handler(&interface_name, &func_name) {
                 crate::ExistingFuncMapping::Func(func) => func,
                 crate::ExistingFuncMapping::Instance(instance) => {
-                    let (_, func) = get_func_from_instance(&mut store_ctx, instance, func_export_index);
+                    let func = get_func_from_instance(&mut store_ctx, &instance, func_export_index);
                     T::get_data(store_ctx.data_mut()).set_handler(&interface_name, &func_name, instance, func.clone());
                     func
                 },
@@ -70,7 +71,7 @@ fn link_concurrent_func<T: InitContext<HostComponentsFactor>>(linker_instance: &
             match T::get_data(access.data_mut()).get_handler(&interface_name, &func_name) {
                 crate::ExistingFuncMapping::Func(func) => func,
                 crate::ExistingFuncMapping::Instance(instance) => {
-                    let (_, func) = get_func_from_instance(&mut access.as_context_mut(), instance, func_export_index);
+                    let func = get_func_from_instance(&mut access.as_context_mut(), &instance, func_export_index);
                     T::get_data(access.data_mut()).set_handler(&interface_name, &func_name, instance, func.clone());
                     func
                 }
@@ -87,17 +88,17 @@ fn link_concurrent_func<T: InitContext<HostComponentsFactor>>(linker_instance: &
             func.call_concurrent(accessor, params, results).await.unwrap();
             Ok(())
         };
-        
+
         Box::pin(fut)
     }).unwrap();
 }
 
 async fn get_func<SD>(store_ctx: &mut StoreContextMut<'_, SD>, instance_pre: &InstancePre<SD>, func_export_index: ComponentExportIndex) -> (spin_core::wasmtime::component::Instance, spin_core::wasmtime::component::Func) {
     let instance = instance_pre.instantiate_async(&mut *store_ctx).await.unwrap();
-    get_func_from_instance(store_ctx, instance, func_export_index)
+    let func = get_func_from_instance(store_ctx, &instance, func_export_index);
+    (instance, func)
 }
 
-fn get_func_from_instance<SD>(store_ctx: &mut StoreContextMut<'_, SD>, instance: Instance, func_export_index: ComponentExportIndex) -> (spin_core::wasmtime::component::Instance, spin_core::wasmtime::component::Func) {
-    let func = instance.get_func(&mut *store_ctx, func_export_index).expect("func index->func lookup failed");
-    (instance, func)
+fn get_func_from_instance<SD>(store_ctx: &mut StoreContextMut<'_, SD>, instance: &Instance, func_export_index: ComponentExportIndex) -> spin_core::wasmtime::component::Func {
+    instance.get_func(&mut *store_ctx, func_export_index).expect("func index->func lookup failed")
 }

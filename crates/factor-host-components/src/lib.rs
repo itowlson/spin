@@ -79,7 +79,7 @@ impl Factor for HostComponentsFactor {
         let tokio_rt = tokio::runtime::Handle::current();
 
         for host_component in &self.host_components {
-            let instance_pre_fut = instantiate_host_component::<T>(engine.clone(), host_component.clone(), None);  // TODO: data dir?
+            let instance_pre_fut = instantiate_host_component::<T>(&engine, host_component.clone(), None);  // TODO: data dir?
             let shared_instance_pre: SharedInstancePre<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_pre_fut))?;
 
             for interface in &host_component.exported_interfaces {
@@ -152,7 +152,7 @@ impl InstanceState {
     // Returning a clone seems vexing, but returning a reference runs
     // means the store remains borrowed while trying to call the func, which
     // makes the borrow checked mad
-    pub(crate) fn get_handler(&mut self, interface: &str, func_name: &str) -> ExistingFuncMapping { // Option<spin_core::wasmtime::component::Func> {
+    pub(crate) fn get_handler(&mut self, interface: &str, func_name: &str) -> ExistingFuncMapping {
         let Some((handler_intance, func_map)) = self.interface_map.get(interface) else {
             return ExistingFuncMapping::None;
         };
@@ -163,14 +163,16 @@ impl InstanceState {
     }
 
     pub(crate) fn set_handler(&mut self, interface: &str, func_name: &str, instance: spin_core::wasmtime::component::Instance, func: spin_core::wasmtime::component::Func) {
+        use std::collections::hash_map::Entry;
+
         match self.interface_map.entry(interface.to_string()) {
-            std::collections::hash_map::Entry::Occupied(mut func_map) => {
+            Entry::Occupied(mut func_map) => {
                 match func_map.get_mut().1.entry(func_name.to_string()) {
-                    std::collections::hash_map::Entry::Occupied(_) => {},
-                    std::collections::hash_map::Entry::Vacant(func_entry) => { func_entry.insert(func); }
+                    Entry::Occupied(_) => {},
+                    Entry::Vacant(func_entry) => { func_entry.insert(func); }
                 }
             },
-            std::collections::hash_map::Entry::Vacant(interface_handler_entry) => {
+            Entry::Vacant(interface_handler_entry) => {
                 let mut map = HashMap::default();
                 map.insert(func_name.to_string(), func);
                 interface_handler_entry.insert((instance, map));
