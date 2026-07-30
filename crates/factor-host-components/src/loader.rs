@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context};
 use spin_core::wasmtime::{Engine, component::{Component, Linker, types::{ComponentItem}}};
@@ -97,7 +97,6 @@ fn load_host_component_from_bytes(
 pub async fn instantiate_host_component<T: spin_factors::InitContext<crate::HostComponentsFactor>>(
     engine: &Engine,
     host_component: HostComponent,
-    data_dir: Option<&Path>,
 ) -> anyhow::Result<SharedInstancePre<T::StoreData>> {
     let mut host_linker: Linker<T::StoreData> = Linker::new(engine);
 

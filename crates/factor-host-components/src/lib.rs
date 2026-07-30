@@ -52,13 +52,15 @@ impl std::fmt::Display for ComponentSource {
 pub struct HostComponentsFactor {
     component_sources: Vec<ComponentSource>,
     host_components: Vec<HostComponent>,
+    host_components_data_dir: Option<PathBuf>, // TODO: do we need to split this into different dirs per HC? or transient per instance? or transient per Spin process (nb multi trig in this case)? hopefully not
 }
 
 impl HostComponentsFactor {
     /// Creates a new `HostComponentsFactor`.
-    pub fn new(sources: &[String]) -> Self {
+    pub fn new(sources: &[String], state_dir: Option<PathBuf>) -> Self {
         let component_sources = sources.iter().map(|s| ComponentSource::Local { path: PathBuf::from(s) }).collect();
-        Self { component_sources, host_components: Default::default() }
+        let host_components_data_dir = state_dir.map(|d| d.join("host-component-state"));
+        Self { component_sources, host_components: Default::default(), host_components_data_dir }
     }
 }
 
@@ -79,12 +81,16 @@ impl Factor for HostComponentsFactor {
         let tokio_rt = tokio::runtime::Handle::current();
 
         for host_component in &self.host_components {
-            let instance_pre_fut = instantiate_host_component::<T>(&engine, host_component.clone(), None);  // TODO: data dir?
+            let instance_pre_fut = instantiate_host_component::<T>(&engine, host_component.clone());
             let shared_instance_pre: SharedInstancePre<T::StoreData> = tokio::task::block_in_place(|| tokio_rt.block_on(instance_pre_fut))?;
 
             for interface in &host_component.exported_interfaces {
                 linker::link_interface(ctx, &shared_instance_pre, interface);
             }
+        }
+
+        if let Some(dir) = self.host_components_data_dir.as_ref() {
+            std::fs::create_dir_all(dir).expect(&format!("shoulda created {dir:?}"));
         }
 
         Ok(())
@@ -104,7 +110,9 @@ impl Factor for HostComponentsFactor {
     ) -> anyhow::Result<Self::InstanceBuilder> {
         let mut wasi_builder = wasmtime_wasi::WasiCtxBuilder::new();
         wasi_builder.inherit_stderr();
-        // TODO: perms
+        if let Some(data_dir) = self.host_components_data_dir.as_ref() {
+            wasi_builder.preopened_dir(data_dir, "/", wasmtime_wasi::DirPerms::all(), wasmtime_wasi::FilePerms::all())?;
+        }
 
         Ok(InstanceBuilder { wasi_builder })
     }
