@@ -64,10 +64,10 @@ impl TriggerFactors {
             pg: OutboundPgFactor::new(),
             mysql: OutboundMysqlFactor::new(),
             llm: LlmFactor::new(
-                spin_factor_llm::spin::default_engine_creator(state_dir)
+                spin_factor_llm::spin::default_engine_creator(state_dir.clone())
                     .context("failed to configure LLM factor")?,
             ),
-            host_components: HostComponentsFactor::new(host_component_sources),
+            host_components: HostComponentsFactor::new(host_component_sources, state_dir.clone()),
         })
     }
 }
