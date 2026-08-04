@@ -14,7 +14,7 @@ use spin_locked_app::{
 };
 use spin_manifest::schema::v2::{self, AppManifest, KebabId, WasiFilesMount};
 use spin_outbound_networking_config::allowed_hosts::{AllowedHostConfig, AllowedHostsConfig};
-use spin_serde::DependencyName;
+use spin_serde::{CapabilitySetKey, DependencyName};
 use std::collections::BTreeMap;
 use tokio::{io::AsyncWriteExt, sync::Semaphore};
 
@@ -344,7 +344,9 @@ impl LocalLoader {
         let mut loaded = BTreeMap::new();
 
         for (role, deps) in dependencies {
-            let locked_deps = self.load_trigger_dependencies_vec(id, &deps.0).await?;
+            let locked_deps = self
+                .load_trigger_dependencies_vec(id, role, &deps.0)
+                .await?;
             loaded.insert(role.clone(), locked_deps);
         }
 
@@ -354,30 +356,38 @@ impl LocalLoader {
     async fn load_trigger_dependencies_vec(
         &self,
         id: &str,
+        role: &str,
         dependencies: &[v2::TriggerDependency],
     ) -> Result<Vec<LockedComponentDependency>> {
-        Ok(
-            try_join_all(dependencies.iter().map(|dependency| async move {
-                let locked_dependency = self
-                    .load_trigger_dependency(dependency.clone())
-                    .await
-                    .with_context(|| {
-                        format!("Failed to load trigger dependency `{dependency:?}` for `{id}`")
-                    })?;
+        Ok(try_join_all(
+            dependencies
+                .iter()
+                .enumerate()
+                .map(|(index, dependency)| async move {
+                    let dependency_id = format!("{role}{index}");
+                    let locked_dependency = self
+                        .load_trigger_dependency(&dependency_id, dependency.clone())
+                        .await
+                        .with_context(|| {
+                            format!("Failed to load trigger dependency `{dependency:?}` for `{id}`")
+                        })?;
 
-                anyhow::Ok(locked_dependency)
-            }))
-            .await?
-            .into_iter()
-            .collect(),
+                    anyhow::Ok(locked_dependency)
+                }),
         )
+        .await?
+        .into_iter()
+        .collect())
     }
 
     async fn load_trigger_dependency(
         &self,
+        dependency_id: &str,
         dependency: v2::TriggerDependency,
     ) -> Result<LockedComponentDependency> {
-        self.wasm_loader.load_trigger_dependency(&dependency).await
+        self.wasm_loader
+            .load_trigger_dependency(dependency_id, &dependency)
+            .await
     }
 
     // Load a Wasm source from the given ContentRef and update the source
@@ -866,7 +876,11 @@ impl WasmLoader {
         dependency_name: &DependencyName,
         dependency: &v2::ComponentDependency,
     ) -> Result<locked::LockedComponentDependency> {
-        let inherit = locked_inherit(dependency);
+        let dependency_id = match dependency_name {
+            DependencyName::Plain(id) => id.as_ref().to_string(),
+            DependencyName::Package(dependency_package_name) => dependency_package_name.to_string(),
+        };
+        let inherit = locked_inherit(&dependency_id, dependency);
 
         let (content, export) = self
             .load_dependency_content(dependency_name, dependency)
@@ -885,6 +899,7 @@ impl WasmLoader {
     /// Loads a dependency and returns a fully resolved locked component dependency.
     pub async fn load_trigger_dependency(
         &self,
+        dependency_id: &str,
         dependency: &v2::TriggerDependency,
     ) -> Result<locked::LockedComponentDependency> {
         let as_component_dep = match dependency.clone() {
@@ -893,42 +908,50 @@ impl WasmLoader {
                 registry,
                 package,
                 inherit_configuration,
+                capabilities,
             } => v2::ComponentDependency::Package {
                 version,
                 registry,
                 package: Some(package),
                 export: None,
                 inherit_configuration,
+                capabilities,
             },
             v2::TriggerDependency::Local {
                 path,
                 inherit_configuration,
+                capabilities,
             } => v2::ComponentDependency::Local {
                 path,
                 export: None,
                 inherit_configuration,
+                capabilities,
             },
             v2::TriggerDependency::HTTP {
                 url,
                 digest,
                 inherit_configuration,
+                capabilities,
             } => v2::ComponentDependency::HTTP {
                 url,
                 digest,
                 export: None,
                 inherit_configuration,
+                capabilities,
             },
             v2::TriggerDependency::AppComponent {
                 component,
                 inherit_configuration,
+                capabilities,
             } => v2::ComponentDependency::AppComponent {
                 component,
                 export: None,
                 inherit_configuration,
+                capabilities,
             },
         };
 
-        let inherit = locked_inherit(&as_component_dep);
+        let inherit = locked_inherit(dependency_id, &as_component_dep);
 
         let fake_dep_name =
             DependencyName::Plain(KebabId::try_from("to-do-fix-fix-fix".to_string()).unwrap());
@@ -1024,7 +1047,33 @@ impl WasmLoader {
     }
 }
 
-fn locked_inherit(dependency: &v2::ComponentDependency) -> locked::InheritConfiguration {
+fn locked_inherit(
+    dependency_id: &str,
+    dependency: &v2::ComponentDependency,
+) -> locked::InheritConfiguration {
+    if let Some(capabilities) = dependency.capabilities() {
+        let builder = CapabilitySetKeyBuilder::new(dependency_id);
+        return locked::InheritConfiguration::Exact(locked::DependencyCapabilities {
+            allowed_outbound_hosts_key: builder.strings(
+                "allowed_outbound_hosts",
+                &capabilities.allowed_outbound_hosts,
+            ),
+            allowed_outbound_hosts: capabilities.allowed_outbound_hosts.clone(),
+            variables_capability_set_key: builder
+                .string_map("variables", capabilities.variables.iter()),
+            variables: capabilities
+                .variables
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            kv_capability_set_key: builder
+                .strings("key_value_stores", &capabilities.key_value_stores),
+            key_value_stores: capabilities.key_value_stores.clone(),
+            sqlite_capability_set_key: builder
+                .strings("sqlite_databases", &capabilities.sqlite_databases),
+            sqlite_databases: capabilities.sqlite_databases.clone(),
+        });
+    };
     match dependency.inherit_configuration() {
         Some(v2::InheritConfiguration::All(true)) => locked::InheritConfiguration::All,
         Some(v2::InheritConfiguration::Some(keys)) => {
@@ -1033,6 +1082,48 @@ fn locked_inherit(dependency: &v2::ComponentDependency) -> locked::InheritConfig
         Some(v2::InheritConfiguration::All(false)) | None => {
             locked::InheritConfiguration::Some(vec![])
         }
+    }
+}
+
+struct CapabilitySetKeyBuilder<'d>(&'d [u8]);
+
+impl<'d> CapabilitySetKeyBuilder<'d> {
+    fn new(dependency_id: &'d str) -> Self {
+        Self(dependency_id.as_bytes())
+    }
+
+    fn strings(&self, capability_name: &str, capability: &[String]) -> CapabilitySetKey {
+        use sha2::Digest;
+
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(self.0);
+        hasher.update(capability_name.as_bytes());
+        for c in capability {
+            hasher.update(c.as_bytes());
+            hasher.update([0]);
+        }
+        let digest = hasher.finalize();
+        CapabilitySetKey::new(format!("csk{digest:x}"))
+    }
+
+    fn string_map<'a, S: AsRef<str> + 'static>(
+        &self,
+        capability_name: &str,
+        capability: impl Iterator<Item = (&'a S, &'a String)>,
+    ) -> CapabilitySetKey {
+        use sha2::Digest;
+
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(self.0);
+        hasher.update(capability_name.as_bytes());
+        for (k, v) in capability {
+            hasher.update(k.as_ref().as_bytes());
+            hasher.update([0]);
+            hasher.update(v.as_bytes());
+            hasher.update([0]);
+        }
+        let digest = hasher.finalize();
+        CapabilitySetKey::new(format!("csk{digest:x}"))
     }
 }
 
