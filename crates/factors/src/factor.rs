@@ -53,6 +53,16 @@ pub trait Factor: Any + Sized {
         ctx: ConfigureAppContext<T, Self>,
     ) -> anyhow::Result<Self::AppState>;
 
+    fn register_named_imports<T: InitContext<Self>>(
+        &self,
+        ctx: &mut T,
+        component: &wasmtime::component::Component,
+    ) -> anyhow::Result<()> {
+        // TODO: remove default impl I guess
+        _ = (ctx, component);
+        Ok(())
+    }
+
     /// Creates a new `FactorInstanceBuilder`, which will later build
     /// per-instance state for this factor.
     ///
