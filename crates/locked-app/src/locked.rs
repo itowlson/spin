@@ -5,7 +5,7 @@ use std::{collections::HashSet, path::PathBuf};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use spin_serde::{DependencyName, FixedVersionBackwardCompatible};
+use spin_serde::{CapabilitySetKey, DependencyName, FixedVersionBackwardCompatible};
 use std::collections::BTreeMap;
 
 use crate::{
@@ -269,6 +269,19 @@ pub struct LockedComponentDependency {
     /// Which configurations to inherit from parent
     #[serde(default, skip_serializing_if = "InheritConfiguration::is_none")]
     pub inherit: InheritConfiguration,
+    /// WASI filesystem contents
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<ContentPath>,
+}
+
+impl LockedComponentDependency {
+    /// TODO: docs
+    pub fn custom_capabilities(&self) -> Option<&DependencyCapabilities> {
+        match &self.inherit {
+            InheritConfiguration::Exact(dependency_capabilities) => Some(dependency_capabilities),
+            _ => None,
+        }
+    }
 }
 
 // /// A LockedDependency represents a "fully resolved" Spin component dependency.
@@ -289,6 +302,31 @@ pub enum InheritConfiguration {
     /// Dependencies will inherit only the specified configurations from parent
     /// (if empty then deny-all is enforced).
     Some(Vec<String>),
+    /// TODO: doesn't play nicely with name but eh
+    Exact(Box<DependencyCapabilities>),
+}
+
+/// TODO:
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DependencyCapabilities {
+    /// TODO
+    pub wasi_key: CapabilitySetKey,
+    /// TODO
+    pub environment: indexmap::IndexMap<String, String>,
+    /// TODO
+    pub allowed_outbound_hosts: Vec<String>,
+    /// TODO
+    pub variables_capability_set_key: CapabilitySetKey,
+    /// TODO
+    pub variables: std::collections::HashMap<String, String>,
+    /// TODO:
+    pub kv_capability_set_key: CapabilitySetKey,
+    /// TODO:
+    pub key_value_stores: Vec<String>,
+    /// TODO:
+    pub sqlite_capability_set_key: CapabilitySetKey,
+    /// TODO:
+    pub sqlite_databases: Vec<String>,
 }
 
 impl Default for InheritConfiguration {
