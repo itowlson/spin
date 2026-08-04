@@ -671,6 +671,7 @@ mod test {
             path: dep_file,
             export: None,
             inherit_configuration: None,
+            capabilities: None,
         };
         let deps = std::iter::once((&dep_name, &dep_src));
 
@@ -742,6 +743,7 @@ mod test {
             path: dep_file,
             export: None,
             inherit_configuration: None,
+            capabilities: None,
         };
         let deps = std::iter::once((&dep_name, &dep_src));
 
@@ -801,6 +803,7 @@ world greeter {
             path: dep_file,
             export: None,
             inherit_configuration: None,
+            capabilities: None,
         };
         let deps = std::iter::once((&dep_name, &dep_src));
 
@@ -863,6 +866,7 @@ world lookup {
             path: dep_file,
             export: None,
             inherit_configuration: None,
+            capabilities: None,
         };
         let deps = std::iter::once((&dep_name, &dep_src));
 
@@ -926,6 +930,7 @@ world colors {
             path: dep_file,
             export: None,
             inherit_configuration: None,
+            capabilities: None,
         };
         let deps = std::iter::once((&dep_name, &dep_src));
 
@@ -1003,6 +1008,7 @@ world colors {
             path: dep_file,
             export: None,
             inherit_configuration: None,
+            capabilities: None,
         };
         let deps = std::iter::once((&dep_name, &dep_src));
 
