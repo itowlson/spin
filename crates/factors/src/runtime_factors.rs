@@ -56,6 +56,12 @@ pub trait RuntimeFactors: Send + Sync + Sized + 'static {
         runtime_config: Self::RuntimeConfig,
     ) -> crate::Result<ConfiguredApp<Self>>;
 
+    fn register_named_imports<T: AsInstanceState<Self::InstanceState> + Send + 'static>(
+        &self,
+        linker: &mut Linker<T>,
+        component: &wasmtime::component::Component,
+    ) -> crate::Result<()>;
+
     /// Prepare the factors' instance state builders.
     fn prepare(
         &self,

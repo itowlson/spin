@@ -14,7 +14,7 @@ use spin_locked_app::{
 };
 use spin_manifest::schema::v2::{self, AppManifest, KebabId, WasiFilesMount};
 use spin_outbound_networking_config::allowed_hosts::{AllowedHostConfig, AllowedHostsConfig};
-use spin_serde::DependencyName;
+use spin_serde::{CapabilitySetKey, DependencyName};
 use std::collections::BTreeMap;
 use tokio::{io::AsyncWriteExt, sync::Semaphore};
 
@@ -893,38 +893,46 @@ impl WasmLoader {
                 registry,
                 package,
                 inherit_configuration,
+                capabilities,
             } => v2::ComponentDependency::Package {
                 version,
                 registry,
                 package: Some(package),
                 export: None,
                 inherit_configuration,
+                capabilities,
             },
             v2::TriggerDependency::Local {
                 path,
                 inherit_configuration,
+                capabilities,
             } => v2::ComponentDependency::Local {
                 path,
                 export: None,
                 inherit_configuration,
+                capabilities,
             },
             v2::TriggerDependency::HTTP {
                 url,
                 digest,
                 inherit_configuration,
+                capabilities,
             } => v2::ComponentDependency::HTTP {
                 url,
                 digest,
                 export: None,
                 inherit_configuration,
+                capabilities,
             },
             v2::TriggerDependency::AppComponent {
                 component,
                 inherit_configuration,
+                capabilities,
             } => v2::ComponentDependency::AppComponent {
                 component,
                 export: None,
                 inherit_configuration,
+                capabilities,
             },
         };
 
@@ -1025,6 +1033,22 @@ impl WasmLoader {
 }
 
 fn locked_inherit(dependency: &v2::ComponentDependency) -> locked::InheritConfiguration {
+    if let Some(capabilities) = dependency.capabilities() {
+        return locked::InheritConfiguration::Exact(locked::DependencyCapabilities {
+            allowed_outbound_hosts_key: CapabilitySetKey::new(),
+            allowed_outbound_hosts: capabilities.allowed_outbound_hosts.clone(),
+            variables_capability_set_key: CapabilitySetKey::new(),
+            variables: capabilities
+                .variables
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            kv_capability_set_key: CapabilitySetKey::new(),
+            key_value_stores: capabilities.key_value_stores.clone(),
+            sqlite_capability_set_key: CapabilitySetKey::new(),
+            sqlite_databases: capabilities.sqlite_databases.clone(),
+        });
+    };
     match dependency.inherit_configuration() {
         Some(v2::InheritConfiguration::All(true)) => locked::InheritConfiguration::All,
         Some(v2::InheritConfiguration::Some(keys)) => {

@@ -148,3 +148,68 @@ impl DependencyName {
         }
     }
 }
+
+const NAMED_IMPORT_KEY_PART_SEPARATOR: &str = "-for-itf-i";
+
+///
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamedImportKey {
+    capability_set: CapabilitySetKey,
+    interface_digest: String, // TODO: maybe this should also be a GUID?
+}
+
+impl TryFrom<&str> for NamedImportKey {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (csk, itf) = value
+            .split_once(NAMED_IMPORT_KEY_PART_SEPARATOR)
+            .ok_or_else(|| anyhow!("Invalid NamedImportKey"))?;
+        Ok(Self {
+            capability_set: CapabilitySetKey(csk.to_string()),
+            interface_digest: itf.to_string(),
+        })
+    }
+}
+
+impl NamedImportKey {
+    ///
+    pub fn new(capability_set: CapabilitySetKey, interface_name: &str) -> Self {
+        Self {
+            capability_set,
+            interface_digest: spin_common::sha256::hex_digest_from_bytes(interface_name.as_bytes()),
+        }
+    }
+
+    ///
+    pub fn flatten(&self) -> String {
+        format!(
+            "{}{NAMED_IMPORT_KEY_PART_SEPARATOR}{}",
+            self.capability_set, self.interface_digest
+        )
+    }
+
+    ///
+    pub fn capability_set(&self) -> &CapabilitySetKey {
+        &self.capability_set
+    }
+}
+
+///
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CapabilitySetKey(String);
+
+impl std::fmt::Display for CapabilitySetKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl CapabilitySetKey {
+    ///
+    pub fn new() -> Self {
+        let guid = uuid::Uuid::new_v4().simple();
+        Self(format!("csk{guid}"))
+    }
+}

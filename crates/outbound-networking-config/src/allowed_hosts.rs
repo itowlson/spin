@@ -1,9 +1,10 @@
-use std::ops::Range;
 use std::sync::Arc;
+use std::{collections::HashMap, ops::Range};
 
 use anyhow::{Context as _, bail, ensure};
 use futures_util::future::{BoxFuture, Shared};
 use spin_expressions::SyncResolver;
+use spin_serde::CapabilitySetKey;
 use url::Host;
 
 /// The domain used for service chaining.
@@ -18,6 +19,7 @@ pub type SharedFutureResult<T> = Shared<BoxFuture<'static, Result<Arc<T>, Arc<an
 #[derive(Clone)]
 pub struct OutboundAllowedHosts {
     allowed_hosts_future: SharedFutureResult<AllowedHostsConfig>,
+    dep_allowed_hosts_futures: HashMap<CapabilitySetKey, SharedFutureResult<AllowedHostsConfig>>,
     disallowed_host_handler: Option<Arc<dyn DisallowedHostHandler>>,
 }
 
@@ -25,10 +27,15 @@ impl OutboundAllowedHosts {
     /// Creates a new `OutboundAllowedHosts` instance.
     pub fn new(
         allowed_hosts_future: SharedFutureResult<AllowedHostsConfig>,
+        dep_allowed_hosts_futures: HashMap<
+            CapabilitySetKey,
+            SharedFutureResult<AllowedHostsConfig>,
+        >,
         disallowed_host_handler: Option<Arc<dyn DisallowedHostHandler>>,
     ) -> Self {
         Self {
             allowed_hosts_future,
+            dep_allowed_hosts_futures,
             disallowed_host_handler,
         }
     }
@@ -49,7 +56,37 @@ impl OutboundAllowedHosts {
             }
         };
 
-        let allowed_hosts = self.resolve().await?;
+        let allowed_hosts = self.resolve(None).await?;
+        let is_allowed = allowed_hosts.allows(&url);
+        if !is_allowed {
+            tracing::debug!("Disallowed outbound networking request to '{url}'");
+            self.report_disallowed_host(url.scheme(), &url.authority());
+        }
+        Ok(is_allowed)
+    }
+
+    /// Checks address against allowed hosts
+    ///
+    /// Calls the [`DisallowedHostHandler`] if set and URL is disallowed.
+    /// If `url` cannot be parsed, `{scheme}://` is prepended to `url` and retried.
+    pub async fn check_url_nimpo_aware(
+        &self,
+        key: Option<&CapabilitySetKey>,
+        url: &str,
+        scheme: &str,
+    ) -> anyhow::Result<bool> {
+        tracing::debug!("Checking outbound networking request to '{url}'");
+        let url = match OutboundUrl::parse(url, scheme) {
+            Ok(url) => url,
+            Err(err) => {
+                tracing::warn!(%err,
+                    "A component tried to make a request to a url that could not be parsed: {url}",
+                );
+                return Ok(false);
+            }
+        };
+
+        let allowed_hosts = self.resolve(key).await?;
         let is_allowed = allowed_hosts.allows(&url);
         if !is_allowed {
             tracing::debug!("Disallowed outbound networking request to '{url}'");
@@ -64,7 +101,7 @@ impl OutboundAllowedHosts {
     /// disallowed.
     pub async fn check_relative_url(&self, schemes: &[&str]) -> anyhow::Result<bool> {
         tracing::debug!("Checking relative outbound networking request with schemes {schemes:?}");
-        let allowed_hosts = self.resolve().await?;
+        let allowed_hosts = self.resolve(None).await?;
         let is_allowed = allowed_hosts.allows_relative_url(schemes);
         if !is_allowed {
             tracing::debug!(
@@ -76,11 +113,46 @@ impl OutboundAllowedHosts {
         Ok(is_allowed)
     }
 
-    async fn resolve(&self) -> anyhow::Result<Arc<AllowedHostsConfig>> {
-        self.allowed_hosts_future
-            .clone()
-            .await
-            .map_err(anyhow::Error::msg)
+    /// Checks if allowed hosts permit relative requests
+    ///
+    /// Calls the [`DisallowedHostHandler`] if set and relative requests are
+    /// disallowed.
+    pub async fn check_relative_url_nimpo_aware(
+        &self,
+        key: Option<&CapabilitySetKey>,
+        schemes: &[&str],
+    ) -> anyhow::Result<bool> {
+        tracing::debug!("Checking relative outbound networking request with schemes {schemes:?}");
+        let allowed_hosts = self.resolve(key).await?;
+        let is_allowed = allowed_hosts.allows_relative_url(schemes);
+        if !is_allowed {
+            tracing::debug!(
+                "Disallowed relative outbound networking request with schemes {schemes:?}"
+            );
+            let scheme = schemes.first().unwrap_or(&"");
+            self.report_disallowed_host(scheme, "self");
+        }
+        Ok(is_allowed)
+    }
+
+    async fn resolve(
+        &self,
+        key: Option<&CapabilitySetKey>,
+    ) -> anyhow::Result<Arc<AllowedHostsConfig>> {
+        match key {
+            None => self
+                .allowed_hosts_future
+                .clone()
+                .await
+                .map_err(anyhow::Error::msg),
+            Some(csk) => self
+                .dep_allowed_hosts_futures
+                .get(csk)
+                .ok_or_else(|| anyhow::anyhow!("unknown CSK {csk}"))?
+                .clone()
+                .await
+                .map_err(anyhow::Error::msg),
+        }
     }
 
     fn report_disallowed_host(&self, scheme: &str, authority: &str) {

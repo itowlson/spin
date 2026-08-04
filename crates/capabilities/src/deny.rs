@@ -2,6 +2,7 @@ use crate::{
     AI_MODELS, ALLOWED_OUTBOUND_HOSTS, CAPABILITY_SETS, ENVIRONMENT, FILES, InheritConfiguration,
     KEY_VALUE_STORES, SQLITE_DATABASES, VARIABLES,
 };
+use spin_serde::{CapabilitySetKey, NamedImportKey};
 use wac_graph::types::{SubtypeChecker, are_semver_compatible};
 use wac_graph::{CompositionGraph, types::Package};
 
@@ -21,7 +22,8 @@ pub fn apply_deny_adapter(
     source: &[u8],
     inherits: InheritConfiguration,
 ) -> anyhow::Result<Vec<u8>> {
-    let allow = allow_list(inherits);
+    let allow = allow_list(&inherits);
+    let reimplements = reimplement_list(&inherits);
 
     const SPIN_DENY_ADAPTER_BYTES: &[u8] = include_bytes!("../deny_adapter.wasm");
 
@@ -46,11 +48,20 @@ pub fn apply_deny_adapter(
     let mut plug_exports: Vec<(String, String)> = Vec::new();
     let mut cache = Default::default();
     let mut checker = SubtypeChecker::new(&mut cache);
+    let mut reimplementations = vec![];
     for (name, plug_ty) in &graph.types()[graph[deny_adapter_id].ty()].exports {
         // Skip interfaces that should be allowed (inherited from host).
         if allow.iter().any(|a| *a == name) {
             continue;
         }
+
+        // for (cap_set_key, itf) in &reimplements {
+        //     if *itf == name {
+        //         eprintln!("gonna shim {itf}");
+        //         reimplementations.push((cap_set_key.clone(), plug_ty.clone(), name.clone()));
+        //         continue;
+        //     }
+        // }
 
         let matching_import = graph.types()[graph[dependency_id].ty()]
             .imports
@@ -69,8 +80,23 @@ pub fn apply_deny_adapter(
                 .is_subtype(*plug_ty, graph.types(), *socket_ty, graph.types())
                 .is_ok()
         {
-            plug_exports.push((name.clone(), socket_name));
+            match reimplements.iter().find(|tup| tup.1 == name) {
+                Some(tup) => reimplementations.push((tup.0.clone(), plug_ty.clone(), name.clone())),
+                None => plug_exports.push((name.clone(), socket_name)),
+            }
         }
+    }
+
+    for (cap_set_key, plug_ty, name) in reimplementations {
+        // eprintln!("got a reimp for {name}");
+        let key = NamedImportKey::new(cap_set_key, &name);
+        let reimplement_import = graph.import(key.flatten(), plug_ty.clone())?;
+        graph.set_instantiation_argument(
+            socket_instantiation,
+            &name, /* ??? */
+            reimplement_import,
+        )?;
+        // eprintln!("GEPLOPPED: {} onto {name} (pluge: {plug_ty:?})", key.flatten());
     }
 
     if plug_exports.is_empty() {
@@ -99,7 +125,7 @@ pub fn apply_deny_adapter(
     Ok(bytes)
 }
 
-fn allow_list(inherits: InheritConfiguration) -> Vec<&'static str> {
+fn allow_list(inherits: &InheritConfiguration) -> Vec<&'static str> {
     let mut allow = vec![];
 
     match inherits {
@@ -122,8 +148,35 @@ fn allow_list(inherits: InheritConfiguration) -> Vec<&'static str> {
                 }
             }
         }
-        InheritConfiguration::None => {}
+        InheritConfiguration::None | InheritConfiguration::Exact { .. } => {}
     }
 
     allow
+}
+
+fn reimplement_list(inherits: &InheritConfiguration) -> Vec<(CapabilitySetKey, &'static str)> {
+    match inherits {
+        InheritConfiguration::Exact {
+            allowed_outbound_hosts_key,
+            key_value_key,
+            variables_key,
+            sqlite_key,
+        } => {
+            let mut reimplement = vec![];
+            for itf in ALLOWED_OUTBOUND_HOSTS {
+                reimplement.push((allowed_outbound_hosts_key.clone(), *itf));
+            }
+            for itf in KEY_VALUE_STORES {
+                reimplement.push((key_value_key.clone(), *itf));
+            }
+            for itf in SQLITE_DATABASES {
+                reimplement.push((sqlite_key.clone(), *itf));
+            }
+            for itf in VARIABLES {
+                reimplement.push((variables_key.clone(), *itf));
+            }
+            reimplement
+        }
+        _ => vec![],
+    }
 }

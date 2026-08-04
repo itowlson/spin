@@ -1,6 +1,8 @@
 pub use deny::apply_deny_adapter;
 mod deny;
 
+use spin_serde::CapabilitySetKey;
+
 /// Specifies which host capabilities a component dependency is allowed to inherit
 /// from its parent component.
 ///
@@ -16,6 +18,12 @@ pub enum InheritConfiguration {
     /// Inherit only the named capability sets (e.g. `"allowed_outbound_hosts"`,
     /// `"key_value_stores"`). Unrecognized names are silently ignored.
     Some(Vec<String>),
+    Exact {
+        allowed_outbound_hosts_key: CapabilitySetKey,
+        variables_key: CapabilitySetKey,
+        key_value_key: CapabilitySetKey,
+        sqlite_key: CapabilitySetKey,
+    },
 }
 
 const CAPABILITY_SETS: &[(&str, &[&str])] = &[

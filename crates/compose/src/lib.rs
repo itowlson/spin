@@ -86,6 +86,12 @@ impl DependencyLike for spin_app::locked::LockedComponentDependency {
         match &self.inherit {
             LockedInheritConfiguration::All => InheritConfiguration::All,
             LockedInheritConfiguration::Some(cfgs) => InheritConfiguration::Some(cfgs.clone()),
+            LockedInheritConfiguration::Exact(caps) => InheritConfiguration::Exact {
+                allowed_outbound_hosts_key: caps.allowed_outbound_hosts_key.clone(),
+                variables_key: caps.variables_capability_set_key.clone(),
+                key_value_key: caps.kv_capability_set_key.clone(),
+                sqlite_key: caps.sqlite_capability_set_key.clone(),
+            },
         }
     }
 

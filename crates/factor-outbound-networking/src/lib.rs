@@ -14,6 +14,7 @@ use spin_factors::{
 };
 use spin_locked_app::APP_NAME_KEY;
 use spin_outbound_networking_config::allowed_hosts::{DisallowedHostHandler, OutboundAllowedHosts};
+use spin_serde::CapabilitySetKey;
 use url::Url;
 
 use crate::{
@@ -67,6 +68,27 @@ impl Factor for OutboundNetworkingFactor {
             })
             .collect::<anyhow::Result<_>>()?;
 
+        let component_dep_allowed_hosts = ctx
+            .app()
+            .components()
+            .map(|component| {
+                let dep_allowed_hosts = component
+                    .locked
+                    .dependencies
+                    .iter()
+                    .flat_map(|(_, dep)| {
+                        dep.custom_capabilities().map(|cc| {
+                            (
+                                cc.allowed_outbound_hosts_key.clone(),
+                                Arc::new(cc.allowed_outbound_hosts.clone()),
+                            )
+                        })
+                    })
+                    .collect();
+                (component.id().to_string(), Arc::new(dep_allowed_hosts))
+            })
+            .collect();
+
         let RuntimeConfig {
             client_tls_configs,
             blocked_ip_networks: block_networks,
@@ -114,6 +136,7 @@ impl Factor for OutboundNetworkingFactor {
 
         Ok(AppState {
             component_allowed_hosts,
+            component_dep_allowed_hosts,
             blocked_networks,
             tls_client_configs,
             socket_connection_semaphore,
@@ -132,6 +155,12 @@ impl Factor for OutboundNetworkingFactor {
             .get(ctx.app_component().id())
             .cloned()
             .context("missing component allowed hosts")?;
+        let dep_hosts = ctx
+            .app_state()
+            .component_dep_allowed_hosts
+            .get(ctx.app_component().id())
+            .cloned()
+            .context("missing component allowed hosts")?;
         let resolver = ctx
             .instance_builder::<VariablesFactor>()?
             .expression_resolver()
@@ -142,6 +171,8 @@ impl Factor for OutboundNetworkingFactor {
             .components()
             .map(|c| c.id().to_string())
             .collect::<Vec<_>>();
+        let resolver2 = resolver.clone();
+        let component_ids2 = component_ids.clone();
         let allowed_hosts_future = async move {
             let prepared = resolver.prepare().await.inspect_err(|err| {
                 tracing::error!(
@@ -159,8 +190,34 @@ impl Factor for OutboundNetworkingFactor {
         .map(|res| res.map(Arc::new).map_err(Arc::new))
         .boxed()
         .shared();
+
+        let dep_allowed_hosts_futures = dep_hosts.iter().map(|(csk, aoh)| {
+            let aoh = aoh.clone();
+            let resolver = resolver2.clone();
+            let component_ids = component_ids2.clone();
+            let fut = async move {
+                let prepared = resolver.prepare().await.inspect_err(|err| {
+                    tracing::error!(
+                        %err, "error.type" = "variable_resolution_failed",
+                        "Error resolving variables when checking request against allowed outbound hosts",
+                    );
+                })?;
+                AllowedHostsConfig::parse(&aoh, &prepared, &component_ids).inspect_err(|err| {
+                    tracing::error!(
+                        %err, "error.type" = "invalid_allowed_hosts",
+                        "Error parsing allowed outbound hosts",
+                    );
+                })
+            }
+            .map(|res| res.map(Arc::new).map_err(Arc::new))
+            .boxed()
+            .shared();
+            (csk.clone(), fut)
+        }).collect::<HashMap<_, _>>();
+
         let allowed_hosts = OutboundAllowedHosts::new(
             allowed_hosts_future.clone(),
+            dep_allowed_hosts_futures.clone(),
             self.disallowed_host_handler.clone(),
         );
         let blocked_networks = ctx.app_state().blocked_networks.clone();
@@ -206,6 +263,7 @@ impl Factor for OutboundNetworkingFactor {
 pub struct AppState {
     /// Component ID -> Allowed host list
     component_allowed_hosts: HashMap<String, Arc<[String]>>,
+    component_dep_allowed_hosts: HashMap<String, Arc<HashMap<CapabilitySetKey, Arc<Vec<String>>>>>,
     /// Blocked IP networks
     blocked_networks: BlockedNetworks,
     /// TLS client configs

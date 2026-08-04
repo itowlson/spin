@@ -2,11 +2,38 @@ use spin_core::wasmtime::component::Accessor;
 use spin_factors::anyhow;
 use spin_telemetry::traces::{self, Blame};
 use spin_world::{
-    spin::variables::variables as v3, v1, v2::variables as v2, wasi::config as wasi_config,
+    NamedImportKey, spin::variables::variables as v3, v1, v2::variables as v2,
+    wasi::config as wasi_config,
 };
 use tracing::instrument;
 
-use crate::{InstanceState, VariablesFactorData};
+use crate::{InstanceState, VariablesFactorData, ersatz_id_for};
+
+impl<T: Send> spin_world::named_imports::spin::variables::variables::HostWithStore<T>
+    for VariablesFactorData
+{
+    async fn get(
+        accessor: &Accessor<T, Self>,
+        id: NamedImportKey,
+        key: String,
+    ) -> Result<String, v3::Error> {
+        let (resolver, component_id) = accessor.with(|mut access| {
+            let host = access.get();
+            host.otel.reparent_tracing_span();
+            (host.expression_resolver.clone(), host.component_id.clone())
+        });
+
+        let key = spin_expressions::Key::new(&key).map_err(expressions_to_variables_err_v3)?;
+        let ersatz_component_id = ersatz_id_for(&component_id, id.capability_set());
+
+        resolver
+            .resolve(&ersatz_component_id, key)
+            .await
+            .map_err(expressions_to_variables_err_v3)
+    }
+}
+
+impl spin_world::named_imports::spin::variables::variables::Host for InstanceState {}
 
 impl<T: Send> v3::HostWithStore<T> for VariablesFactorData {
     #[instrument(name = "spin_variables.get", skip(accessor), fields(otel.kind = "client"))]

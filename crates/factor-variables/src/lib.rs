@@ -10,7 +10,7 @@ use spin_factors::{
     ConfigureAppContext, Factor, FactorData, InitContext, PrepareContext, RuntimeFactors,
     SelfInstanceBuilder, anyhow,
 };
-use spin_world::spin::variables::variables as v3;
+use spin_world::{CapabilitySetKey, spin::variables::variables as v3};
 
 /// A factor for providing variables to components.
 #[derive(Default)]
@@ -35,6 +35,7 @@ impl Factor for VariablesFactor {
         ctx.link_bindings(spin_world::v2::variables::add_to_linker::<_, FactorData<Self>>)?;
         ctx.link_bindings(spin_world::wasi::config::store::add_to_linker::<_, FactorData<Self>>)?;
         ctx.link_bindings(v3::add_to_linker::<_, VariablesFactorData>)?;
+
         Ok(())
     }
 
@@ -51,6 +52,14 @@ impl Factor for VariablesFactor {
                 component.id(),
                 component.config().map(|(k, v)| (k.into(), v.into())),
             )?;
+            for (_dep_name, dep) in &component.locked.dependencies {
+                if let Some(caps) = dep.custom_capabilities() {
+                    let ersatz_component_id =
+                        ersatz_id_for(component.id(), &caps.variables_capability_set_key);
+                    expression_resolver
+                        .add_component_variables(&ersatz_component_id, caps.variables.clone())?;
+                }
+            }
         }
 
         let providers = ctx.take_runtime_config().unwrap_or_default();
@@ -61,6 +70,26 @@ impl Factor for VariablesFactor {
         Ok(AppState {
             expression_resolver: Arc::new(expression_resolver),
         })
+    }
+
+    fn register_named_imports<T: InitContext<Self>>(
+        &self,
+        ctx: &mut T,
+        component: &spin_core::Component,
+    ) -> anyhow::Result<()> {
+        spin_world::named_imports::spin::variables::variables::add_to_linker::<
+            _,
+            VariablesFactorData,
+        >(
+            ctx.linker(),
+            component,
+            |key| {
+                key.try_into()
+                    .map_err(spin_core::wasmtime::Error::from_anyhow)
+            },
+            T::get_data,
+        )?;
+        Ok(())
     }
 
     fn prepare<T: RuntimeFactors>(
@@ -114,4 +143,8 @@ pub struct VariablesFactorData(VariablesFactor);
 
 impl spin_core::wasmtime::component::HasData for VariablesFactorData {
     type Data<'a> = &'a mut InstanceState;
+}
+
+fn ersatz_id_for(component_id: &str, key: &CapabilitySetKey) -> String {
+    format!("{}-{}", component_id, key)
 }
