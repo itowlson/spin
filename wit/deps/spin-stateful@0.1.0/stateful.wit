@@ -1,0 +1,11 @@
+package spin:stateful@0.1.0;
+
+interface lifecycle {
+  /// Called when the stateful component is instantiated. The component may
+  /// use this call to rehydrate any persistent state, using the id as a key.
+  instantiate: async func(id: string);
+
+  /// Called when Spin intends to suspend the instance. The component should flush
+  /// any pending state.
+  suspend: async func();
+}

@@ -12,6 +12,11 @@ world redis-trigger {
   export spin:redis/inbound-redis@3.0.0;
 }
 
+world stateful-component {
+  include http-trigger;
+  export spin:stateful/lifecycle@0.1.0;
+}
+
 /// The imports needed for a guest to run on a Spin host
 world platform {
   include wasi:cli/imports@0.2.6;
