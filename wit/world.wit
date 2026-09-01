@@ -13,7 +13,7 @@ world redis-trigger {
 }
 
 world stateful-component {
-  include http-trigger;
+  // include http-trigger;
   export spin:stateful/lifecycle@0.1.0;
 }
 

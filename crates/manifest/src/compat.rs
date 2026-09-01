@@ -75,6 +75,7 @@ pub fn v1_to_v2_app(manifest: v1::AppManifestV1) -> Result<v2::AppManifest, Erro
                 dependencies_inherit_configuration: None,
                 dependencies: Default::default(),
                 profile: Default::default(),
+                stateful: Default::default(),
             },
         );
         triggers

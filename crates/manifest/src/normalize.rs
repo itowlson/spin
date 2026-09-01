@@ -326,6 +326,7 @@ fn ensure_is_acceptable_dependency(
         dependencies_inherit_configuration: _,
         dependencies,
         profile: _,
+        stateful,
     } = component;
 
     if !ai_models.is_empty() {
@@ -354,6 +355,9 @@ fn ensure_is_acceptable_dependency(
     }
     if !variables.is_empty() {
         surprises.push("variables");
+    }
+    if *stateful {
+        surprises.push("stateful");
     }
 
     if surprises.is_empty() {

@@ -236,6 +236,7 @@ mod tests {
             dependencies_inherit_configuration: None,
             dependencies: Default::default(),
             profile: Default::default(),
+            stateful: Default::default(),
         }
     }
 

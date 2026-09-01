@@ -228,6 +228,7 @@ impl LocalLoader {
             .string_array("databases", component.sqlite_databases)
             .string_array("ai_models", component.ai_models)
             .serializable("build", component.build)?
+            .serializable("is_stateful", component.stateful)?
             .take();
 
         let source = self

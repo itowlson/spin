@@ -51,6 +51,8 @@ use wasmtime_wasi_http::handler::{
 use wasmtime_wasi_http::p2::body::HyperOutgoingBody;
 use wasmtime_wasi_http::p3::bindings::Service;
 
+static KEY_IS_STATEFUL: spin_app::MetadataKey<bool> = spin_app::MetadataKey::new("is_stateful");
+
 use crate::{
     Body, InstanceReuseConfig, NotFoundRouteKind, OutputFormat, TlsConfig, TriggerApp,
     TriggerInstanceBuilder,
@@ -102,6 +104,9 @@ pub struct HttpServer<F: RuntimeFactors> {
     component_trigger_configs: HashMap<spin_http::routes::TriggerLookupKey, HttpTriggerConfig>,
     // Component ID -> handler type
     component_handler_types: HashMap<String, HandlerType<HttpHandlerState<F>>>,
+    stateful_component_ids: std::collections::HashSet<String>,
+    stateful_component_instances: HashMap<String, tokio::sync::RwLock<HashMap<String, wasmtime_wasi_http::handler::ProxyHandler<HttpHandlerState<F>>>>>,  // TODO: I think this is okay? But a bit concerned in case lots of lookups for an instance hold up adding a new instance.  BUT instances are not truly forever, so this may be wrong anyway
+    // stateful_component_instance_pres: HashMap<String, InstancePre>
 }
 
 impl<F: RuntimeFactors> HttpServer<F> {
@@ -122,6 +127,17 @@ impl<F: RuntimeFactors> HttpServer<F> {
             .into_iter()
             .map(|(trigger_id, config)| config.lookup_key(trigger_id).map(|k| (k, config)))
             .collect::<Result<Vec<_>, _>>()?;
+
+        let stateful_component_ids: std::collections::HashSet<_> = trigger_app
+            .app()
+            .components()
+            .filter_map(as_stateful_component_name)
+            .collect();
+        let stateful_component_instances = stateful_component_ids
+            .iter()
+            .map(|id| (id.to_string(), tokio::sync::RwLock::new(HashMap::new())))
+            .collect();
+        // let stateful_component_instance_pres = stateful_component_ids.iter().map(|id| trigger_app.get_instance_pre(id)).collect::<Result<Vec<_>, _>()?;
 
         // Build router
         let component_routes = component_trigger_configs
@@ -185,6 +201,8 @@ impl<F: RuntimeFactors> HttpServer<F> {
             component_handler_types,
             output_format,
             request_deadline: reuse_config.request_deadline,
+            stateful_component_ids,
+            stateful_component_instances,
         })
     }
 
@@ -194,6 +212,7 @@ impl<F: RuntimeFactors> HttpServer<F> {
         executor: &Option<HttpExecutorType>,
         reuse_config: InstanceReuseConfig,
     ) -> anyhow::Result<HandlerType<HttpHandlerState<F>>> {
+        let is_stateful = trigger_app.app().get_component(component_id).unwrap().get_metadata(KEY_IS_STATEFUL).unwrap().unwrap_or_default();
         let pre = trigger_app.get_instance_pre(component_id)?;
         let handler_type = match executor {
             None | Some(HttpExecutorType::Http) => HandlerType::from_instance_pre(
@@ -203,6 +222,8 @@ impl<F: RuntimeFactors> HttpServer<F> {
                     reuse_config,
                     server: Default::default(),
                     self_scheme: Default::default(),
+                    first_uri: Default::default(),
+                    is_stateful,
                 },
             )?,
             Some(HttpExecutorType::Wagi(wagi_config)) => {
@@ -400,7 +421,7 @@ impl<F: RuntimeFactors> HttpServer<F> {
 
     async fn respond_wasm_component(
         self: &Arc<Self>,
-        req: Request<Body>,
+        mut req: Request<Body>,
         route_match: RouteMatch<'_, '_>,
         client_addr: SocketAddr,
         component_id: &str,
@@ -412,6 +433,71 @@ impl<F: RuntimeFactors> HttpServer<F> {
             .get(component_id)
             .with_context(|| format!("unknown component ID {component_id:?}"))?;
         let executor = executor.as_ref().unwrap_or(&HttpExecutorType::Http);
+
+        // -------------------------------
+        // IF THE ROUTE MATCH IS SYNTHETIC AND THE HANDLER COMPONENT IS STATEFUL:
+        // - parse the path
+        // - locate or hydrate the instance
+        // - send it to that instance
+        //
+        // although it looks like this logic might need to be buried
+        // within the relevant `execute` method because we are still going
+        // to need the itf-specific "invoke handle()" logic? not sure
+        // -------------------------------
+
+        if self.stateful_component_ids.contains(component_id) {
+            let Some(instance_map) = self.stateful_component_instances.get(component_id) else {
+                anyhow::bail!("why is there not entry for the component id");
+            };
+
+            let path = req.uri().path().to_string();
+            let Some(instance_id) = path.split('/').skip_while(|p| p.is_empty()).next() else {
+                anyhow::bail!("wait what where is the instance id");
+            };
+            println!("STATEY BOI INST ID={instance_id}");
+
+            // TODO: Yes this is a terrible way to do this
+            loop {
+                {
+                    let insto = instance_map.read().await;
+                    let instance_opt = insto.get(instance_id);
+                    if let Some(instance) = instance_opt {
+                        eprintln!("USING EXISTING INST");
+                        crate::wasi::prepare_request(&route_match, &mut req, client_addr)?;
+                        let res = instance.handle((), req.map(|body| body.map_err(WasiHttpError::from).boxed_unsync())).await.map_err(|e| anyhow::Error::msg(e.to_string()));
+                        // TODO: duplicatey nonsense
+                        let resp = match res {
+                            Ok(res) => Ok(MatchedRoute::with_response_extension(
+                                res,
+                                route_match.raw_route(),
+                            )),
+                            Err(err) => {
+                                tracing::error!("Error processing request: {err:?}");
+                                instrument_error(&err);
+                                Self::internal_error(None, route_match.raw_route())
+                            }
+                        };
+                        return resp;
+                    }
+                }
+
+                // at this point we have no existing instance so we're gonna need to create one WHEE
+                // TODO: oh no there's going to be about a gazillion race conditions here
+                {
+                    eprintln!("OH NO ADDING INST {instance_id} TO MAP");
+                    // Oh hell handler_type holds the HTTP proxy not the actual instance ARSE ARSE ARSE
+                    // let instance_pre = self.trigger_app.get_instance_pre(component_id).unwrap();
+                    // let instance = instance_pre.instantiate(some_store_what_store).unwrap();
+                    let thingy = handler_type.clone();
+                    let HandlerType::Wasi0_3(h) = thingy else {
+                        panic!("oh no");
+                    };
+                    h.state().init_once(self, req.uri());
+                    let mut insto = instance_map.write().await;
+                    insto.insert(instance_id.to_string(), h);
+                }
+            }
+        }
 
         let res = match executor {
             HttpExecutorType::Http => match handler_type {
@@ -758,6 +844,7 @@ pub(crate) struct HttpWorkerState<F: RuntimeFactors> {
     request_timeout: Duration,
     max_instance_reuse_count: usize,
     max_instance_concurrent_reuse_count: usize,
+    statey_boiness: Option<spin_world::statetastic::StatefulComponent>,
     _phantom: PhantomData<F>,
 }
 
@@ -784,7 +871,20 @@ impl<F: RuntimeFactors> WorkerState for HttpWorkerState<F> {
         Box::pin(tokio::time::sleep(self.request_timeout))
     }
 
-    fn drop(&self, store: Store<Self::StoreData>, result: Result<(), wasmtime::Error>) {
+    fn drop(&self, mut store: Store<Self::StoreData>, result: Result<(), wasmtime::Error>) {
+        // The trouble is the thing is still in the map as being instantiated so I am
+        // not sure how to rehydrate it next time
+        eprintln!("DROPPY TIME for {} boi", if self.statey_boiness.is_some() { "statey" } else { "non-statey" });
+        if let Some(statey_boi) = self.statey_boiness.as_ref() {
+            // Ugh I guess this means we want suspend to be sync but then HOW DOES IT CALL KV APIS
+            let fut = store.run_concurrent(async |accessor| {
+                statey_boi.spin_stateful_lifecycle().call_suspend(accessor).await
+            });
+            // fut.await;  // OH NO NO NO NO NO
+            let h = tokio::runtime::Handle::current();
+            tokio::task::block_in_place(move || h.block_on(fut)).unwrap().unwrap();
+        }
+
         if let Err(error) = result {
             eprintln!("worker failed: {error:?}");
         }
@@ -798,11 +898,15 @@ pub(crate) struct HttpHandlerState<F: RuntimeFactors> {
     reuse_config: InstanceReuseConfig,
     server: OnceLock<Arc<HttpServer<F>>>,
     self_scheme: OnceLock<Scheme>,
+    first_uri: OnceLock<Uri>,
+    is_stateful: bool,
 }
 
 impl<F: RuntimeFactors> HttpHandlerState<F> {
     pub(crate) fn init_once(&self, server: &Arc<HttpServer<F>>, first_uri: &Uri) {
         self.server.get_or_init(|| server.clone());
+        self.first_uri.get_or_init(|| first_uri.clone());
+        eprintln!("I have inited the URI which was in the icebox");
         if let Some(scheme) = first_uri.scheme() {
             self.self_scheme.get_or_init(|| scheme.clone());
         }
@@ -833,11 +937,29 @@ impl<F: RuntimeFactors> HandlerState for HttpHandlerState<F> {
 
         let proxy = Proxy::P3(Service::new(&mut store, &instance).unwrap());
 
+        let lifecycler = spin_world::statetastic::StatefulComponent::new(&mut store, &instance).ok();
+        if let Some(lc) = lifecycler.as_ref() {
+            eprintln!("{} INST INST INST", self.component_id);
+            eprintln!("- AND THE URI WAS {:?}", self.first_uri.get());
+            let inst_id = self.first_uri.get().unwrap().path().split('/').filter(|s| !s.is_empty()).next().unwrap();
+            store.run_concurrent(async |accessor| lc.spin_stateful_lifecycle().call_instantiate(accessor, inst_id.into()).await).await.unwrap().unwrap();
+        } else {
+            eprintln!("{} not a statey boi", self.component_id);
+        }
+
         let request_timeout = self
             .reuse_config
             .request_timeout
             .map(|range| rand::rng().random_range(range))
             .unwrap_or(Duration::MAX);
+
+        let idle_timeout = if self.is_stateful {
+            // TODO: yeah nah. I mean maybe we do want it to have a longer lifespan but
+            // we sure want to exercise the hydrate/flush cycle as well.
+            Duration::from_secs(10)
+        } else {
+            rand::rng().random_range(self.reuse_config.idle_instance_timeout)
+        };
 
         Ok(Instance {
             store,
@@ -849,7 +971,7 @@ impl<F: RuntimeFactors> HandlerState for HttpHandlerState<F> {
                 .unwrap()
             },
             expiration: HttpWorkerExpiration {
-                idle_timeout: rand::rng().random_range(self.reuse_config.idle_instance_timeout),
+                idle_timeout,
                 request_timeout,
                 sleep: tokio::time::sleep(Duration::MAX),
             },
@@ -859,8 +981,14 @@ impl<F: RuntimeFactors> HandlerState for HttpHandlerState<F> {
                     .random_range(self.reuse_config.max_instance_reuse_count),
                 max_instance_concurrent_reuse_count: rand::rng()
                     .random_range(self.reuse_config.max_instance_concurrent_reuse_count),
+                statey_boiness: lifecycler,
                 _phantom: PhantomData,
             },
         })
     }
+}
+
+fn as_stateful_component_name(component: spin_app::AppComponent) -> Option<String> {
+    let is_stateful = component.get_metadata(KEY_IS_STATEFUL).unwrap().unwrap_or_default();
+    is_stateful.then_some(component.id().to_string())
 }

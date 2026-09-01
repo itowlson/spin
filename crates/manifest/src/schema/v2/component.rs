@@ -145,6 +145,9 @@ pub struct Component {
     /// Example: `profile.debug.build.command = "npm run build-debug"`
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub(crate) profile: Map<String, ComponentProfileOverride>,
+    /// Indicates a stateful component.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stateful: bool,
 }
 
 impl Component {
