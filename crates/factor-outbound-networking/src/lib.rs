@@ -79,7 +79,7 @@ impl Factor for OutboundNetworkingFactor {
                     .flat_map(|dep| {
                         dep.custom_capabilities().map(|cc| {
                             (
-                                cc.allowed_outbound_hosts_key.clone(),
+                                cc.wasi_key.clone(),
                                 Arc::new(cc.allowed_outbound_hosts.clone()),
                             )
                         })

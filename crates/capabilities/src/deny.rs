@@ -91,27 +91,27 @@ pub fn apply_deny_adapter(
             {
                 Some(reimp) => reimplementations.push((
                     reimp.capability_set_key.clone(),
-                    *plug_ty,
-                    plug_name.to_string(),
+                    *socket_ty,
+                    import_name.to_string(),
                 )), // cannot be borrows because that results in Jane's Fighting Borrows of the World
                 None => plug_exports.push((plug_name.to_owned(), import_name.clone())),
             }
         }
     }
 
-    for (cap_set_key, plug_ty, name) in reimplementations {
+    if plug_exports.is_empty() && reimplementations.is_empty() {
+        // No plugging needed — return the original source as-is.
+        return Ok(source.to_vec());
+    }
+
+    for (cap_set_key, socket_ty, name) in reimplementations {
         let key = NamedImportKey::new(cap_set_key, &name);
-        let reimplement_import = graph.import(key.flatten(), plug_ty)?;
+        let reimplement_import = graph.import(key.flatten(), socket_ty)?;
         graph.set_instantiation_argument(
             socket_instantiation,
             &name, /* ??? */
             reimplement_import,
         )?;
-    }
-
-    if plug_exports.is_empty() {
-        // No plugging needed — return the original source as-is.
-        return Ok(source.to_vec());
     }
 
     let plug_instantiation = graph.instantiate(deny_adapter_id);
@@ -179,14 +179,20 @@ fn reimplement_list(inherits: &InheritConfiguration) -> Vec<Reimplement> {
 
     match inherits {
         InheritConfiguration::Exact {
-            allowed_outbound_hosts_key,
+            wasi_key,
             key_value_key,
             variables_key,
             sqlite_key,
         } => {
             let mut reimplement = vec![];
             for itf in ALLOWED_OUTBOUND_HOSTS {
-                push(&mut reimplement, allowed_outbound_hosts_key, itf);
+                push(&mut reimplement, wasi_key, itf);
+            }
+            for itf in FILES {
+                push(&mut reimplement, wasi_key, itf);
+            }
+            for itf in ENVIRONMENT {
+                push(&mut reimplement, wasi_key, itf);
             }
             for itf in KEY_VALUE_STORES {
                 push(&mut reimplement, key_value_key, itf);

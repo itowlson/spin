@@ -184,7 +184,11 @@ impl<C: Client, T> v3::HostConnectionWithStore<T> for MysqlFactorData<C> {
     }
 }
 
-impl<C: Client> spin_world::named_imports::spin::mysql::mysql::Host for InstanceState<C> {}
+impl<C: Client> spin_world::named_imports::spin::mysql::mysql::Host for InstanceState<C> {
+    fn convert_error(&mut self, err: v3::Error) -> anyhow::Result<v3::Error> {
+        Ok(err)
+    }
+}
 
 impl<C: Client> spin_world::named_imports::spin::mysql::mysql::HostConnection for InstanceState<C> {
     async fn drop(

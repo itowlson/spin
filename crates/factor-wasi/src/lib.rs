@@ -6,18 +6,15 @@ mod wasi_2023_11_10;
 mod wasi_2026_03_15;
 
 use std::{
-    future::Future,
-    io::{Read, Write},
-    net::SocketAddr,
-    path::Path,
-    sync::Arc,
+    collections::HashMap, future::Future, io::{Read, Write}, net::SocketAddr, path::Path, sync::Arc,
 };
 
 use io::{PipeReadStream, PipedWriteStream};
 use spin_factors::{
-    AppComponent, Factor, FactorInstanceBuilder, InitContext, PrepareContext, RuntimeFactors,
-    RuntimeFactorsInstanceState, anyhow,
+    anyhow, Factor, FactorField, FactorInstanceBuilder, InitContext, PrepareContext,
+    RuntimeFactors, RuntimeFactorsInstanceState,
 };
+use spin_serde::{CapabilitySetKey};
 use wasmtime::component::HasData;
 use wasmtime_wasi::cli::{StdinStream, StdoutStream, WasiCli, WasiCliCtxView};
 use wasmtime_wasi::clocks::{WasiClocks, WasiClocksCtxView};
@@ -28,17 +25,19 @@ use wasmtime_wasi::{FsPerms, ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView
 
 pub use sockets::{SocketPermitState, SpinSockets, SpinSocketsView};
 pub use wasi_2023_10_18::convert_result;
-pub use wasi_2026_03_15::{FutureReaderExt, StreamReaderExt, reborrow};
+pub use wasi_2026_03_15::{reborrow, FutureReaderExt, StreamReaderExt};
 pub use wasmtime_wasi::sockets::SocketAddrUse;
 
 pub struct WasiFactor {
     files_mounter: Box<dyn FilesMounter>,
+    cap_set_id: std::sync::RwLock<HashMap<CapabilitySetKey, wasmtime_wasi::NamedId>>,
 }
 
 impl WasiFactor {
     pub fn new(files_mounter: impl FilesMounter + 'static) -> Self {
         Self {
             files_mounter: Box::new(files_mounter),
+            cap_set_id: Default::default(),
         }
     }
 
@@ -383,8 +382,82 @@ impl Factor for WasiFactor {
 
     fn configure_app<T: RuntimeFactors>(
         &self,
-        _ctx: spin_factors::ConfigureAppContext<T, Self>,
+        ctx: spin_factors::ConfigureAppContext<T, Self>,
     ) -> anyhow::Result<Self::AppState> {
+        for component in ctx.app().components() {
+            for dependency in component.locked.dependencies.values() {
+                if let Some(caps) = dependency.custom_capabilities() {
+                    self.register_capability_set(&caps.wasi_key)?;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    fn register_named_imports<T: InitContext<Self>>(
+        &self,
+        ctx: &mut T,
+        component: &wasmtime::component::Component,
+    ) -> anyhow::Result<()> {
+        use wasmtime_wasi::{p2, p3};
+
+        p2::bindings::named_imports::wasi::cli::environment::add_to_linker::<
+            _,
+            wasmtime_wasi::cli::WasiCliNamed<_>,
+        >(
+            ctx.linker(),
+            component,
+            |name| self.lookup_named_import(name),
+            |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
+        )?;
+        p2::bindings::named_imports::wasi::filesystem::types::add_to_linker::<
+            _,
+            wasmtime_wasi::filesystem::WasiFilesystemNamed<_>,
+        >(
+            ctx.linker(),
+            component,
+            |name| self.lookup_named_import(name),
+            |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
+        )?;
+        p2::bindings::named_imports::wasi::filesystem::preopens::add_to_linker::<
+            _,
+            wasmtime_wasi::filesystem::WasiFilesystemNamed<_>,
+        >(
+            ctx.linker(),
+            component,
+            |name| self.lookup_named_import(name),
+            |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
+        )?;
+
+        p3::bindings::named_imports::wasi::cli::environment::add_to_linker::<
+            _,
+            wasmtime_wasi::cli::WasiCliNamed<_>,
+        >(
+            ctx.linker(),
+            component,
+            |name| self.lookup_named_import(name),
+            |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
+        )?;
+        p3::bindings::named_imports::wasi::filesystem::types::add_to_linker::<
+            _,
+            wasmtime_wasi::filesystem::WasiFilesystemNamed<_>,
+        >(
+            ctx.linker(),
+            component,
+            |name| self.lookup_named_import(name),
+            |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
+        )?;
+        p3::bindings::named_imports::wasi::filesystem::preopens::add_to_linker::<
+            _,
+            wasmtime_wasi::filesystem::WasiFilesystemNamed<_>,
+        >(
+            ctx.linker(),
+            component,
+            |name| self.lookup_named_import(name),
+            |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
+        )?;
+
         Ok(())
     }
 
@@ -398,11 +471,29 @@ impl Factor for WasiFactor {
         // Mount files
         let mount_ctx = MountFilesContext { ctx: &mut wasi_ctx };
         self.files_mounter
-            .mount_files(ctx.app_component(), mount_ctx)?;
+            .mount_files(ctx.app_component().files(), mount_ctx)?;
+
+        let mut dependency_capabilities = std::collections::HashMap::new();
+        for dep in ctx.app_component().locked.dependencies.values() {
+            let mut dep_wasi_ctx = WasiCtxBuilder::new();
+            if let Some(caps) = dep.custom_capabilities() {
+                let dep_mount_ctx = MountFilesContext { ctx: &mut dep_wasi_ctx };
+                self.files_mounter.mount_files(dep.files.iter(), dep_mount_ctx)?;
+                for (k, v) in &caps.environment {
+                    dep_wasi_ctx.env(k, v);
+                }
+                // TODO: AOH key?
+                dependency_capabilities.insert(self.named_id_of(&caps.wasi_key)?, dep_wasi_ctx);
+            }
+        }
+        let dependency_capabilities = SpinNamedWasiCtxBuilder {
+            ids: dependency_capabilities,
+        };
 
         let mut builder = InstanceBuilder {
             ctx: wasi_ctx,
             socket_permit_state: None,
+            dependency_capabilities,
         };
 
         // Apply environment variables
@@ -412,10 +503,37 @@ impl Factor for WasiFactor {
     }
 }
 
+impl WasiFactor {
+    fn lookup_named_import(&self, named_import_name: &str) -> wasmtime::Result<wasmtime_wasi::NamedId> {
+        let named_import_key = spin_serde::NamedImportKey::try_from(named_import_name).map_err(wasmtime::Error::from_anyhow)?;
+        self.named_id_of(named_import_key.capability_set())
+    }
+
+    fn named_id_of(&self, csk: &CapabilitySetKey) -> wasmtime::Result<wasmtime_wasi::NamedId> {
+        let named_id_opt = self.cap_set_id.read().map_err(|e| wasmtime::Error::msg(e.to_string()))?.get(csk).cloned();
+        named_id_opt.ok_or_else(|| wasmtime::Error::msg("named import ID not found"))
+    }
+
+    fn register_capability_set(&self, cap_set_key: &CapabilitySetKey) -> wasmtime::Result<wasmtime_wasi::NamedId> {
+        if let Ok(id) = self.named_id_of(cap_set_key) {
+            return Ok(id.clone());
+        }
+        let mut cap_set_id = self.cap_set_id.write().map_err(|e| wasmtime::Error::msg(e.to_string()))?;
+        let id = wasmtime_wasi::NamedId(cap_set_id.len());
+        cap_set_id.insert(cap_set_key.clone(), id.clone());
+        Ok(id)
+    }
+}
+
+struct SpinNamedWasiCtxBuilder {
+    ids: std::collections::HashMap<wasmtime_wasi::NamedId, WasiCtxBuilder>,
+}
+
 pub trait FilesMounter: Send + Sync {
     fn mount_files(
         &self,
-        app_component: &AppComponent,
+        files: std::slice::Iter<'_, spin_factors::ContentPath>,
+        // app_component: &AppComponent,
         ctx: MountFilesContext,
     ) -> anyhow::Result<()>;
 }
@@ -425,11 +543,12 @@ pub struct DummyFilesMounter;
 impl FilesMounter for DummyFilesMounter {
     fn mount_files(
         &self,
-        app_component: &AppComponent,
+        mut files: std::slice::Iter<'_, spin_factors::ContentPath>,
+        // app_component: &AppComponent,
         _ctx: MountFilesContext,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
-            app_component.files().next().is_none(),
+            files.next().is_none(),
             "DummyFilesMounter can't actually mount files"
         );
         Ok(())
@@ -460,6 +579,7 @@ impl MountFilesContext<'_> {
 pub struct InstanceBuilder {
     ctx: WasiCtxBuilder,
     socket_permit_state: Option<Arc<SocketPermitState>>,
+    dependency_capabilities: SpinNamedWasiCtxBuilder,
 }
 
 impl InstanceBuilder {
@@ -532,10 +652,16 @@ impl FactorInstanceBuilder for InstanceBuilder {
         let InstanceBuilder {
             ctx: mut wasi_ctx,
             socket_permit_state,
+            dependency_capabilities,
         } = self;
         Ok(InstanceState {
             ctx: wasi_ctx.build(),
             socket_permit_state,
+            dependency_ctx: dependency_capabilities
+                .ids
+                .into_iter()
+                .map(|(id, mut builder)| (id, builder.build()))
+                .collect(),
         })
     }
 }
@@ -571,10 +697,42 @@ impl InstanceBuilder {
 pub struct InstanceState {
     ctx: WasiCtx,
     socket_permit_state: Option<Arc<SocketPermitState>>,
+    dependency_ctx: std::collections::HashMap<wasmtime_wasi::NamedId, WasiCtx>,
 }
 
 impl InstanceState {
     pub fn ctx(&mut self) -> &mut WasiCtx {
         &mut self.ctx
+    }
+}
+
+#[repr(transparent)]
+struct WasiStoreDataWrapper<T>
+where
+    T: FactorField<Factor = WasiFactor>,
+{
+    data: T::State,
+}
+
+impl<T> WasiStoreDataWrapper<T>
+where
+    T: FactorField<Factor = WasiFactor>,
+{
+    fn from_mut(data: &mut T::State) -> &mut Self {
+        // SAFETY: TODO (aka repr(transparent), one field, etc)
+        unsafe { &mut *(data as *mut T::State as *mut Self) }
+    }
+}
+
+impl<T> wasmtime_wasi::WasiNamedView for WasiStoreDataWrapper<T>
+where
+    T: FactorField<Factor = WasiFactor>,
+{
+    fn ctx(&mut self, id: wasmtime_wasi::NamedId) -> WasiCtxView<'_> {
+        let (st, table) = T::get(&mut self.data);
+        WasiCtxView {
+            ctx: st.dependency_ctx.get_mut(&id).unwrap(),
+            table,
+        }
     }
 }

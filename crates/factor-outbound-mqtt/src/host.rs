@@ -203,7 +203,11 @@ impl<T: Send> v3::HostConnectionWithStore<T> for crate::MqttFactorData {
     }
 }
 
-impl spin_world::named_imports::spin::mqtt::mqtt::Host for InstanceState {}
+impl spin_world::named_imports::spin::mqtt::mqtt::Host for InstanceState {
+    fn convert_error(&mut self, err: v3::Error) -> anyhow::Result<v3::Error> {
+        Ok(err)
+    }
+}
 
 impl spin_world::named_imports::spin::mqtt::mqtt::HostConnection for InstanceState {
     async fn drop(

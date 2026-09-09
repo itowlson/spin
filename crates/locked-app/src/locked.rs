@@ -269,6 +269,9 @@ pub struct LockedComponentDependency {
     /// Which configurations to inherit from parent
     #[serde(default, skip_serializing_if = "InheritConfiguration::is_none")]
     pub inherit: InheritConfiguration,
+    /// WASI filesystem contents
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<ContentPath>,
 }
 
 impl LockedComponentDependency {
@@ -307,7 +310,9 @@ pub enum InheritConfiguration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DependencyCapabilities {
     /// TODO
-    pub allowed_outbound_hosts_key: CapabilitySetKey,
+    pub wasi_key: CapabilitySetKey,
+    /// TODO
+    pub environment: indexmap::IndexMap<String, String>,
     /// TODO
     pub allowed_outbound_hosts: Vec<String>,
     /// TODO
