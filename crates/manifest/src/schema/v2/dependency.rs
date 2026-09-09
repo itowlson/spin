@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use spin_serde::{KebabId, LowerSnakeId};
 
-use super::{Map, json_schema, kebab_or_snake_case};
+use super::{Map, WasiFilesMount, json_schema, kebab_or_snake_case};
 
 /// Specifies how to satisfy an import dependency of the component. This may be one of:
 ///
@@ -387,6 +387,33 @@ pub enum InheritConfiguration {
 /// TODO: unify with component capabilities
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct DependencyCapabilities {
+    // TODO: -------------------------------------------------------------------------------
+
+    /// Environment variables to be set for the Wasm module.
+    ///
+    /// `environment = { DB_URL = "mysql://spin:spin@localhost/dev" }`
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub environment: Map<String, String>,
+    /// The files the component is allowed to read. Each list entry is either:
+    ///
+    /// - a glob pattern (e.g. "assets/**/*.jpg"); or
+    ///
+    /// - a source-destination pair indicating where a host directory should be mapped in the guest (e.g. { source = "assets", destination = "/" })
+    ///
+    /// Learn more: https://spinframework.dev/writing-apps#including-files-with-components
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<WasiFilesMount>,
+    /// Any files or glob patterns that should not be available to the
+    /// Wasm module at runtime, even though they match a `files`` entry.
+    ///
+    /// Example: `exclude_files = ["secrets/*"]`
+    ///
+    /// Learn more: https://spinframework.dev/writing-apps#including-files-with-components
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_files: Vec<String>,
+
+    // END TODO: -------------------------------------------------------------------------------
+
     /// Configuration variables available to the component. Names must be
     /// in `lower_snake_case`. Values are strings, and may refer
     /// to application variables using `{{ ... }}` syntax.
