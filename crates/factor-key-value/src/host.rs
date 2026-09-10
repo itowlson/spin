@@ -467,7 +467,11 @@ impl<T> v3::HostStoreWithStore<T> for crate::KeyValueFactorData {
     }
 }
 
-impl spin_world::named_imports::spin::key_value::key_value::Host for KeyValueDispatch {}
+impl spin_world::named_imports::spin::key_value::key_value::Host for KeyValueDispatch {
+    fn convert_error(&mut self, err: v3::Error) -> anyhow::Result<v3::Error> {
+        Ok(err)
+    }
+}
 
 impl spin_world::named_imports::spin::key_value::key_value::HostStore for KeyValueDispatch {
     async fn drop(

@@ -33,7 +33,11 @@ impl<T: Send> spin_world::named_imports::spin::variables::variables::HostWithSto
     }
 }
 
-impl spin_world::named_imports::spin::variables::variables::Host for InstanceState {}
+impl spin_world::named_imports::spin::variables::variables::Host for InstanceState {
+    fn convert_error(&mut self, err: v3::Error) -> anyhow::Result<v3::Error> {
+        Ok(err)
+    }
+}
 
 impl<T: Send> v3::HostWithStore<T> for VariablesFactorData {
     #[instrument(name = "spin_variables.get", skip(accessor), fields(otel.kind = "client"))]

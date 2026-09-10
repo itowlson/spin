@@ -260,7 +260,11 @@ impl<T: Send> spin_world::named_imports::spin::sqlite3_1_0::sqlite::HostConnecti
     }
 }
 
-impl spin_world::named_imports::spin::sqlite3_1_0::sqlite::Host for InstanceState {}
+impl spin_world::named_imports::spin::sqlite3_1_0::sqlite::Host for InstanceState {
+    fn convert_error(&mut self, err: v3::Error) -> anyhow::Result<v3::Error> {
+        Ok(err)
+    }
+}
 
 impl spin_world::named_imports::spin::sqlite3_1_0::sqlite::HostConnection for InstanceState {
     async fn open(

@@ -466,6 +466,9 @@ impl<T, CF: ClientFactory>
 impl<CF: ClientFactory> spin_world::named_imports::spin::postgres4_2_0::postgres::Host
     for InstanceState<CF>
 {
+    fn convert_error(&mut self, err: v4::Error) -> anyhow::Result<v4::Error> {
+        Ok(err)
+    }
 }
 
 impl<CF: ClientFactory> spin_world::named_imports::spin::postgres4_2_0::postgres::HostConnection
