@@ -9527,6 +9527,7 @@ dependencies = [
  "spin-connection-semaphore",
  "spin-factors",
  "spin-factors-test",
+ "spin-serde",
  "tokio",
  "tracing",
  "wasmtime",
