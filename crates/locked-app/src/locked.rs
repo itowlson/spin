@@ -310,8 +310,9 @@ pub enum InheritConfiguration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DependencyCapabilities {
     /// TODO
-    pub files_key: CapabilitySetKey,
-    // TODO: how to represent the files? root path?
+    pub wasi_key: CapabilitySetKey,
+    /// TODO
+    // pub files_root: Option<PathBuf>, // TODO: how to represent the files?
     /// TODO
     pub allowed_outbound_hosts_key: CapabilitySetKey,
     /// TODO

@@ -19,6 +19,7 @@ pub enum InheritConfiguration {
     /// `"key_value_stores"`). Unrecognized names are silently ignored.
     Some(Vec<String>),
     Exact {
+        wasi_key: CapabilitySetKey,
         allowed_outbound_hosts_key: CapabilitySetKey,
         variables_key: CapabilitySetKey,
         key_value_key: CapabilitySetKey,

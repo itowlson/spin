@@ -91,17 +91,17 @@ pub fn apply_deny_adapter(
             {
                 Some(reimp) => reimplementations.push((
                     reimp.capability_set_key.clone(),
-                    *plug_ty,
-                    plug_name.to_string(),
+                    *socket_ty,
+                    import_name.to_string(),
                 )), // cannot be borrows because that results in Jane's Fighting Borrows of the World
                 None => plug_exports.push((plug_name.to_owned(), import_name.clone())),
             }
         }
     }
 
-    for (cap_set_key, plug_ty, name) in reimplementations {
+    for (cap_set_key, socket_ty, name) in reimplementations {
         let key = NamedImportKey::new(cap_set_key, &name);
-        let reimplement_import = graph.import(key.flatten(), plug_ty)?;
+        let reimplement_import = graph.import(key.flatten(), socket_ty)?;
         graph.set_instantiation_argument(
             socket_instantiation,
             &name, /* ??? */
@@ -179,6 +179,7 @@ fn reimplement_list(inherits: &InheritConfiguration) -> Vec<Reimplement> {
 
     match inherits {
         InheritConfiguration::Exact {
+            wasi_key,
             allowed_outbound_hosts_key,
             key_value_key,
             variables_key,
@@ -187,6 +188,9 @@ fn reimplement_list(inherits: &InheritConfiguration) -> Vec<Reimplement> {
             let mut reimplement = vec![];
             for itf in ALLOWED_OUTBOUND_HOSTS {
                 push(&mut reimplement, allowed_outbound_hosts_key, itf);
+            }
+            for itf in FILES {
+                push(&mut reimplement, wasi_key, itf);
             }
             for itf in KEY_VALUE_STORES {
                 push(&mut reimplement, key_value_key, itf);
