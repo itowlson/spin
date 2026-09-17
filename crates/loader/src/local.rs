@@ -1093,6 +1093,7 @@ fn locked_inherit(
         let builder = CapabilitySetKeyBuilder::new(dependency_id);
         return locked::InheritConfiguration::Exact(locked::DependencyCapabilities {
             wasi_key: builder.strings("wasi", &[dependency_id.to_string()]), // TODO: does this provide enough disambiguation? What is the corresponding value it should map to?
+            environment: capabilities.environment.clone(),
             allowed_outbound_hosts_key: builder.strings(
                 "allowed_outbound_hosts",
                 &capabilities.allowed_outbound_hosts,

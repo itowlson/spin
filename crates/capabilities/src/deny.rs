@@ -99,6 +99,11 @@ pub fn apply_deny_adapter(
         }
     }
 
+    if plug_exports.is_empty() && reimplementations.is_empty() {
+        // No plugging needed — return the original source as-is.
+        return Ok(source.to_vec());
+    }
+
     for (cap_set_key, socket_ty, name) in reimplementations {
         let key = NamedImportKey::new(cap_set_key, &name);
         let reimplement_import = graph.import(key.flatten(), socket_ty)?;
@@ -107,11 +112,6 @@ pub fn apply_deny_adapter(
             &name, /* ??? */
             reimplement_import,
         )?;
-    }
-
-    if plug_exports.is_empty() {
-        // No plugging needed — return the original source as-is.
-        return Ok(source.to_vec());
     }
 
     let plug_instantiation = graph.instantiate(deny_adapter_id);
@@ -190,6 +190,9 @@ fn reimplement_list(inherits: &InheritConfiguration) -> Vec<Reimplement> {
                 push(&mut reimplement, allowed_outbound_hosts_key, itf);
             }
             for itf in FILES {
+                push(&mut reimplement, wasi_key, itf);
+            }
+            for itf in ENVIRONMENT {
                 push(&mut reimplement, wasi_key, itf);
             }
             for itf in KEY_VALUE_STORES {

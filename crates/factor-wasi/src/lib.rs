@@ -403,6 +403,15 @@ impl Factor for WasiFactor {
     ) -> anyhow::Result<()> {
         use wasmtime_wasi::{p2, p3};
 
+        p2::bindings::named_imports::wasi::cli::environment::add_to_linker::<
+            _,
+            wasmtime_wasi::cli::WasiCliNamed<_>,
+        >(
+            ctx.linker(),
+            component,
+            |name| self.lookup_named_import(name),
+            |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
+        )?;
         p2::bindings::named_imports::wasi::filesystem::types::add_to_linker::<
             _,
             wasmtime_wasi::filesystem::WasiFilesystemNamed<_>,
@@ -422,6 +431,15 @@ impl Factor for WasiFactor {
             |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
         )?;
 
+        p3::bindings::named_imports::wasi::cli::environment::add_to_linker::<
+            _,
+            wasmtime_wasi::cli::WasiCliNamed<_>,
+        >(
+            ctx.linker(),
+            component,
+            |name| self.lookup_named_import(name),
+            |x| wasmtime_wasi::WasiCtxNamedView(WasiStoreDataWrapper::<T::Field>::from_mut(x)),
+        )?;
         p3::bindings::named_imports::wasi::filesystem::types::add_to_linker::<
             _,
             wasmtime_wasi::filesystem::WasiFilesystemNamed<_>,
@@ -462,6 +480,9 @@ impl Factor for WasiFactor {
             if let Some(caps) = dep.custom_capabilities() {
                 let dep_mount_ctx = MountFilesContext { ctx: &mut dep_wasi_ctx };
                 self.files_mounter.mount_files(dep.files.iter(), dep_mount_ctx)?;
+                for (k, v) in &caps.environment {
+                    dep_wasi_ctx.env(k, v);
+                }
                 // TODO: AOH key?
                 dependency_capabilities.insert(self.named_id_of(&caps.wasi_key)?, dep_wasi_ctx);
             }
@@ -559,7 +580,7 @@ impl MountFilesContext<'_> {
 pub struct InstanceBuilder {
     ctx: WasiCtxBuilder,
     socket_permit_state: Option<Arc<SocketPermitState>>,
-    dependency_capabilities: SpinNamedWasiCtxBuilder, //std::collections::HashMap<String, WasiCtxBuilder>, // TODO: wat
+    dependency_capabilities: SpinNamedWasiCtxBuilder,
 }
 
 impl InstanceBuilder {

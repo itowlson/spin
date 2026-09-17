@@ -314,6 +314,8 @@ pub struct DependencyCapabilities {
     /// TODO
     // pub files_root: Option<PathBuf>, // TODO: how to represent the files?
     /// TODO
+    pub environment: indexmap::IndexMap<String, String>,
+    /// TODO
     pub allowed_outbound_hosts_key: CapabilitySetKey,
     /// TODO
     pub allowed_outbound_hosts: Vec<String>,

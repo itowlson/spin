@@ -9747,6 +9747,7 @@ version = "4.2.0-pre0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "indexmap 2.14.0",
  "itertools 0.15.0",
  "serde",
  "serde_json",
