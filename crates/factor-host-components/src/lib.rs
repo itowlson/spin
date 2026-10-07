@@ -111,7 +111,7 @@ impl Factor for HostComponentsFactor {
         let mut wasi_builder = wasmtime_wasi::WasiCtxBuilder::new();
         wasi_builder.inherit_stderr();
         if let Some(data_dir) = self.host_components_data_dir.as_ref() {
-            wasi_builder.preopened_dir(data_dir, "/", wasmtime_wasi::DirPerms::all(), wasmtime_wasi::FilePerms::all())?;
+            wasi_builder.preopened_dir(data_dir, "/", wasmtime_wasi::FsPerms::ReadWrite)?;
         }
 
         Ok(InstanceBuilder { wasi_builder })
